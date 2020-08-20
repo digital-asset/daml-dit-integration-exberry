@@ -1,0 +1,60 @@
+## Copyright (c) 2020, Digital Asset (Switzerland) GmbH and/or its affiliates.
+## SPDX-License-Identifier: Apache-2.0
+
+catalog:
+    name: dabl-integration-exberry
+    group_id: com.digitalasset
+    version: 0.5.1
+    short_description: Exberry Integration
+    description: Exberry Trading and Management API Integration
+    release_date: 2020-08-13
+    author: Digital Asset (Switzerland) GmbH
+    license: Apache-2.0
+    tags: [ integration ]
+subdeployments:
+    - dabl-integration-exberry.dar
+integration_types:
+    - id: com.projectdabl.integrations.exberry.integration
+      name: Exberry
+      description: >
+          Connects to the trading API via websocket and transmits and orders and market data.
+      entrypoint: exberry_int.integration_exberry:integration_exberry_main
+      env_class: exberry_int.integration_exberry:ExberryIntegrationEnv
+      runtime: python-direct
+      fields:
+          - id: username
+            name: Username
+            description: The Exberry Username
+            field_type: text
+          - id: password
+            name: Password
+            description: The Exberry Password
+            field_type: text
+          - id: clientId
+            name: Client Id
+            description: The Exberry Client Id
+            field_type: text
+          - id: tradingApiUrl
+            name: Trading API URL
+            description: The Exberry trading API URL
+            field_type: text
+          - id: adminApiUrl
+            name: Admin API URL
+            description: The Exberry admin API URL
+            field_type: text
+          - id: tokenUrl
+            name: Token URL
+            description: The Exberry token request URL
+            field_type: text
+          - id: apiKey
+            name: API Key
+            description: The Exberry API Key
+            field_type: text
+          - id: secret
+            name: API Secret
+            description: The Exberry API Secret
+            field_type: text
+          - id: interval
+            name: Processing Interval
+            description: The consumer side processing interval
+            field_type: text

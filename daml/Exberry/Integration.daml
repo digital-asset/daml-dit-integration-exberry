@@ -1,0 +1,175 @@
+-- Copyright (c) 2020, Digital Asset (Switzerland) GmbH and/or its affiliates.
+-- SPDX-License-Identifier: Apache-2.0
+
+daml 1.2
+
+module Exberry.Integration where
+
+
+data OrderData = OrderData
+  with
+    orderType : Text
+    instrument : Text
+    quantity : Decimal
+    price : Decimal
+    side : Text
+    timeInForce : Text
+    brokerOrderId : Int
+    userId : Text
+  deriving (Ord, Eq, Show)
+
+
+-- Integration --> Exberry
+template NewOrderRequest
+  with
+    integrationParty : Party
+    order : OrderData
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template NewOrderSuccess
+  with
+    integrationParty : Party
+    sid : Int
+    orderId : Int
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template NewOrderFailure
+  with
+    integrationParty : Party
+    sid : Int
+    errorCode : Int
+    errorMessage : Text
+  where
+    signatory integrationParty
+
+
+-- Integration --> Exberry
+template CancelOrderRequest
+  with
+    integrationParty : Party
+    instrument : Text
+    brokerOrderId : Int
+    userId : Text
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template CancelOrderSuccess
+  with
+    integrationParty : Party
+    sid : Int
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template CancelOrderFailure
+  with
+    integrationParty : Party
+    sid : Int
+    errorCode : Int
+    errorMessage : Text
+  where
+    signatory integrationParty
+
+
+-- Integration ==> Exberry
+template CreateInstrumentRequest
+  with
+    integrationParty : Party
+    symbol : Text
+    quoteCurrency : Text
+    instrumentDescription : Text
+    calendarId : Text
+    pricePrecision : Int
+    quantityPrecision : Int
+    minQuantity : Decimal
+    maxQuantity : Decimal
+    status : Text
+  where
+    signatory integrationParty
+
+    ensure minQuantity > 0.0 && minQuantity <= maxQuantity
+        && pricePrecision > 0 && quantityPrecision > 0
+
+    controller integrationParty can
+      CreateInstrumentRequest_Success : ContractId Instrument
+        with
+          instrumentId : Text
+        do
+          create Instrument with ..
+
+      CreateInstrumentRequest_Failure : ContractId FailedInstrumentRequest
+        with
+          message : Text
+          name : Text
+          code : Text
+        do
+          create FailedInstrumentRequest with ..
+
+
+-- Integration <== Exberry
+template Instrument
+  with
+    integrationParty : Party
+    symbol : Text
+    quoteCurrency : Text
+    instrumentDescription : Text
+    calendarId : Text
+    pricePrecision : Int
+    quantityPrecision : Int
+    minQuantity : Decimal
+    maxQuantity : Decimal
+    status : Text
+    instrumentId : Text
+  where
+    signatory integrationParty
+
+
+-- Integration <== Exberry
+template FailedInstrumentRequest
+  with
+    integrationParty : Party
+    symbol : Text
+    quoteCurrency : Text
+    instrumentDescription : Text
+    calendarId : Text
+    pricePrecision : Int
+    quantityPrecision : Int
+    minQuantity : Decimal
+    maxQuantity : Decimal
+    status : Text
+    message : Text
+    name : Text
+    code : Text
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template ExecutionReport
+  with
+    integrationParty : Party
+    sid : Int
+    eventId : Int
+    eventTimestamp : Text
+    instrument : Text
+    trackingNumber : Int
+    makerBrokerId : Int
+    makerBrokerOrderId : Int
+    makerOrderId : Int
+    takerBrokerId : Int
+    takerBrokerOrderId : Int
+    takerOrderId : Int
+    matchId : Int
+    executedQuantity : Decimal
+    executedPrice : Decimal
+  where
+    signatory integrationParty
