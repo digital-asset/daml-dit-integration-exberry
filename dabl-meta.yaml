@@ -4,13 +4,14 @@
 catalog:
     name: dabl-integration-exberry
     group_id: com.digitalasset
-    version: 0.5.1
-    short_description: Exberry Integration
+    version: 0.5.2
+    short_description: Exberry
     description: Exberry Trading and Management API Integration
     release_date: 2020-08-13
     author: Digital Asset (Switzerland) GmbH
     license: Apache-2.0
     tags: [ integration ]
+    icon_file: exberry-icon.png
 subdeployments:
     - dabl-integration-exberry.dar
 integration_types:
