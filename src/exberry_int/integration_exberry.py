@@ -17,9 +17,9 @@ from daml_dit_api import \
 LOG = logging.getLogger('dabl-integration-exberry')
 
 EXBERRY_CREATE_SESSION = 'exchange.market/createSession'
-EXBERRY_PLACE_ORDER = 'exchange.market/placeOrder'
-EXBERRY_ORDERBOOK_DEPTH = 'exchange.market/orderBookDepth'
-EXBERRY_CANCEL_ORDER = 'exchange.market/cancelOrder'
+EXBERRY_PLACE_ORDER = 'v1/exchange.market/placeOrder'
+EXBERRY_ORDERBOOK_DEPTH = 'v1/exchange.market/orderBookDepth'
+EXBERRY_CANCEL_ORDER = 'v1/exchange.market/cancelOrder'
 
 
 class EXBERRY:
@@ -203,11 +203,11 @@ def integration_exberry_main(
                     'eventTimestamp': str(msg_data['eventTimestamp']),
                     'instrument': msg_data['instrument'],
                     'trackingNumber': msg_data['trackingNumber'],
-                    'makerBrokerId': msg_data['makerBrokerId'],
-                    'makerBrokerOrderId': msg_data['makerBrokerOrderId'],
+                    'makerMpId': msg_data['makerMpId'],
+                    'makerMpOrderId': msg_data['makerMpOrderId'],
                     'makerOrderId': msg_data['makerOrderId'],
-                    'takerBrokerId': msg_data['takerBrokerId'],
-                    'takerBrokerOrderId': msg_data['takerBrokerOrderId'],
+                    'takerMpId': msg_data['takerMpId'],
+                    'takerMpOrderId': msg_data['takerMpOrderId'],
                     'takerOrderId': msg_data['takerOrderId'],
                     'matchId': msg_data['matchId'],
                     'executedQuantity': msg_data['executedQuantity'],
@@ -302,11 +302,11 @@ def integration_exberry_main(
                 'price': float(order_data['price']),
                 'side': order_data['side'],
                 'timeInForce': order_data['timeInForce'],
-                'brokerOrderId': order_data['brokerOrderId'],
+                'mpOrderId': order_data['mpOrderId'],
                 'userId': order_data['userId'],
             },
             'q': EXBERRY_PLACE_ORDER,
-            'sid': order_data['brokerOrderId']
+            'sid': order_data['mpOrderId']
         }
         return order_json
 
@@ -314,12 +314,12 @@ def integration_exberry_main(
     def cancel_order(cancel_req):
         cancel_order_json = {
             'd': {
-                'brokerOrderId': cancel_req['brokerOrderId'],
+                'mpOrderId': cancel_req['mpOrderId'],
                 'userId': cancel_req['userId'],
                 'instrument': cancel_req['instrument']
             },
             'q': EXBERRY_CANCEL_ORDER,
-            'sid': cancel_req['brokerOrderId'],
+            'sid': cancel_req['mpOrderId'],
         }
         return cancel_order_json
 
