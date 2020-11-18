@@ -58,7 +58,7 @@ def integration_exberry_main(
 
 
     async def request_session(api_key: str, secret_str: str):
-        time_str = int(time.time() * 1000)
+        time_str = str(int(time.time() * 1000))
         LOG.info(f"Computing signature...")
         signature = compute_signature(api_key, secret_str, time_str)
         LOG.info(f"...OK")
