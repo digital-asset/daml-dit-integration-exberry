@@ -173,3 +173,35 @@ template ExecutionReport
     executedPrice : Decimal
   where
     signatory integrationParty
+
+
+-- Integration --> Exberry
+template MassCancelRequest
+  with
+    integrationParty : Party
+    sid : Text
+    instrument : Text
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template MassCancelSuccess
+  with
+    integrationParty : Party
+    sid : Int
+    numberOfOrders : Int
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template MassCancelFailure
+  with
+    integrationParty : Party
+    sid : Int
+    errorCode : Int
+    errorMessage : Text
+  where
+    signatory integrationParty
+
