@@ -14,7 +14,7 @@ data OrderData = OrderData
     price : Decimal
     side : Text
     timeInForce : Text
-    brokerOrderId : Int
+    mpOrderId : Int
     userId : Text
   deriving (Ord, Eq, Show)
 
@@ -54,7 +54,7 @@ template CancelOrderRequest
   with
     integrationParty : Party
     instrument : Text
-    brokerOrderId : Int
+    mpOrderId : Int
     userId : Text
   where
     signatory integrationParty
@@ -162,11 +162,11 @@ template ExecutionReport
     eventTimestamp : Text
     instrument : Text
     trackingNumber : Int
-    makerBrokerId : Int
-    makerBrokerOrderId : Int
+    makerMpId : Int
+    makerMpOrderId : Int
     makerOrderId : Int
-    takerBrokerId : Int
-    takerBrokerOrderId : Int
+    takerMpId : Int
+    takerMpOrderId : Int
     takerOrderId : Int
     matchId : Int
     executedQuantity : Decimal
