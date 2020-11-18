@@ -3,9 +3,7 @@ import base64
 from dataclasses import dataclass
 import hashlib
 import hmac
-import json
 import logging
-import os
 import time
 
 from aiohttp import ClientSession, WSMsgType
@@ -46,7 +44,6 @@ class ExberryIntegrationEnv(IntegrationEnvironment):
     tokenUrl: str
     apiKey: str
     secret: str
-    interval: int
 
 
 def integration_exberry_main(
@@ -54,21 +51,14 @@ def integration_exberry_main(
     events: 'IntegrationEvents'):
 
     outbound_queue = asyncio.Queue()
-    inbound_queue = asyncio.Queue()
 
     async def enqueue_outbound(msg: dict):
         LOG.info(f"Enqueuing outbound message: {msg}")
         await outbound_queue.put(msg)
 
 
-    async def dequeue_inbound() -> dict:
-        msg = await inbound_queue.get()
-        LOG.info(f"Dequeued inbound message: {msg}")
-        return msg
-
-
     async def request_session(api_key: str, secret_str: str):
-        time_str = int(time.time() * 1000)
+        time_str = str(int(time.time() * 1000))
         LOG.info(f"Computing signature...")
         signature = compute_signature(api_key, secret_str, time_str)
         LOG.info(f"...OK")
@@ -113,7 +103,7 @@ def integration_exberry_main(
                 if msg.type == WSMsgType.TEXT:
                     msg_data = msg.json()
                     LOG.info(f"Integration <-- Exberry: {msg_data}")
-                    await inbound_queue.put(msg_data)
+                    await env.queue.put(msg_data)
                 elif msg.type == WSMsgType.ERROR:
                     LOG.error("Error message type! Breaking consumer loop...")
                     break
@@ -186,12 +176,10 @@ def integration_exberry_main(
                     logging.warning(f"Unknown response ¯\\_(ツ)_/¯ : {json_resp}")
 
 
-    @events.queue.message(env.interval)
+    @events.queue.message()
     async def process_inbound_messages(msg):
-        if not inbound_queue.empty():
-            LOG.info(f"Will process {inbound_queue.qsize()} messages...")
-
         commands = []
+
         if msg['q'] == EXBERRY_ORDERBOOK_DEPTH and msg['d']['messageType'] == 'Executed':
             msg_data = msg['d']
             commands.append(create(EXBERRY.ExecutionReport, {
