@@ -3,15 +3,13 @@ import base64
 from dataclasses import dataclass
 import hashlib
 import hmac
-import json
 import logging
-import os
 import time
 
 from aiohttp import ClientSession, WSMsgType
 from dazl import create, exercise
 
-from daml_dit_api import \
+from daml_dit_if.api import \
     IntegrationEnvironment, IntegrationEvents
 
 LOG = logging.getLogger('dabl-integration-exberry')
@@ -46,7 +44,6 @@ class ExberryIntegrationEnv(IntegrationEnvironment):
     tokenUrl: str
     apiKey: str
     secret: str
-    interval: int
 
 
 def integration_exberry_main(
@@ -54,17 +51,10 @@ def integration_exberry_main(
     events: 'IntegrationEvents'):
 
     outbound_queue = asyncio.Queue()
-    inbound_queue = asyncio.Queue()
 
     async def enqueue_outbound(msg: dict):
         LOG.info(f"Enqueuing outbound message: {msg}")
         await outbound_queue.put(msg)
-
-
-    async def dequeue_inbound() -> dict:
-        msg = await inbound_queue.get()
-        LOG.info(f"Dequeued inbound message: {msg}")
-        return msg
 
 
     async def request_session(api_key: str, secret_str: str):
@@ -113,7 +103,7 @@ def integration_exberry_main(
                 if msg.type == WSMsgType.TEXT:
                     msg_data = msg.json()
                     LOG.info(f"Integration <-- Exberry: {msg_data}")
-                    await inbound_queue.put(msg_data)
+                    await env.queue.put(msg_data)
                 elif msg.type == WSMsgType.ERROR:
                     LOG.error("Error message type! Breaking consumer loop...")
                     break
@@ -186,75 +176,70 @@ def integration_exberry_main(
                     logging.warning(f"Unknown response ¯\\_(ツ)_/¯ : {json_resp}")
 
 
-    @events.time.periodic_interval(env.interval)
-    async def process_inbound_messages():
-        if not inbound_queue.empty():
-            LOG.info(f"Will process {inbound_queue.qsize()} messages...")
-
+    @events.queue.message()
+    async def process_inbound_messages(msg):
         commands = []
-        while not inbound_queue.empty():  # drain the queue
-            msg = await dequeue_inbound()
 
-            if msg['q'] == EXBERRY_ORDERBOOK_DEPTH and msg['d']['messageType'] == 'Executed':
+        if msg['q'] == EXBERRY_ORDERBOOK_DEPTH and msg['d']['messageType'] == 'Executed':
+            msg_data = msg['d']
+            commands.append(create(EXBERRY.ExecutionReport, {
+                'sid': msg['sid'],
+                'eventId': msg_data['eventId'],
+                'eventTimestamp': str(msg_data['eventTimestamp']),
+                'instrument': msg_data['instrument'],
+                'trackingNumber': msg_data['trackingNumber'],
+                'makerBrokerId': msg_data['makerBrokerId'],
+                'makerBrokerOrderId': msg_data['makerBrokerOrderId'],
+                'makerOrderId': msg_data['makerOrderId'],
+                'takerBrokerId': msg_data['takerBrokerId'],
+                'takerBrokerOrderId': msg_data['takerBrokerOrderId'],
+                'takerOrderId': msg_data['takerOrderId'],
+                'matchId': msg_data['matchId'],
+                'executedQuantity': msg_data['executedQuantity'],
+                'executedPrice': msg_data['executedPrice'],
+                'integrationParty': env.party,
+            }))
+
+        elif msg['q'] == EXBERRY_PLACE_ORDER:
+            if 'd' in msg and 'orderId' in msg['d']:
                 msg_data = msg['d']
-                commands.append(create(EXBERRY.ExecutionReport, {
+                # this is a place order ack
+                commands.append(create(EXBERRY.NewOrderSuccess, {
                     'sid': msg['sid'],
-                    'eventId': msg_data['eventId'],
-                    'eventTimestamp': str(msg_data['eventTimestamp']),
-                    'instrument': msg_data['instrument'],
-                    'trackingNumber': msg_data['trackingNumber'],
-                    'makerBrokerId': msg_data['makerBrokerId'],
-                    'makerBrokerOrderId': msg_data['makerBrokerOrderId'],
-                    'makerOrderId': msg_data['makerOrderId'],
-                    'takerBrokerId': msg_data['takerBrokerId'],
-                    'takerBrokerOrderId': msg_data['takerBrokerOrderId'],
-                    'takerOrderId': msg_data['takerOrderId'],
-                    'matchId': msg_data['matchId'],
-                    'executedQuantity': msg_data['executedQuantity'],
-                    'executedPrice': msg_data['executedPrice'],
-                    'integrationParty': env.party,
+                    'orderId': msg_data['orderId'],
+                    'integrationParty': env.party
+                }))
+            elif 'errorType' in msg:
+                msg_data = msg['d']
+                # this is a place order reject
+                commands.append(create(EXBERRY.NewOrderFailure, {
+                    'sid': msg['sid'],
+                    'errorCode': msg_data['errorCode'],
+                    'errorMessage': msg_data['errorMessage'],
+                    'integrationParty': env.party
                 }))
 
-            elif msg['q'] == EXBERRY_PLACE_ORDER:
-                if 'd' in msg and 'orderId' in msg['d']:
-                    msg_data = msg['d']
-                    # this is a place order ack
-                    commands.append(create(EXBERRY.NewOrderSuccess, {
-                        'sid': msg['sid'],
-                        'orderId': msg_data['orderId'],
-                        'integrationParty': env.party
-                    }))
-                elif 'errorType' in msg:
-                    msg_data = msg['d']
-                    # this is a place order reject
-                    commands.append(create(EXBERRY.NewOrderFailure, {
-                        'sid': msg['sid'],
-                        'errorCode': msg_data['errorCode'],
-                        'errorMessage': msg_data['errorMessage'],
-                        'integrationParty': env.party
-                    }))
+        elif msg['q'] == EXBERRY_CREATE_SESSION:
+            if 'sig' in msg and msg['sig'] == 1:
+                LOG.info(f"Successfully established session!")
+                LOG.info(f"Requesting market data subscription...")
+                await request_market_data()
 
-            elif msg['q'] == EXBERRY_CREATE_SESSION:
-                if 'sig' in msg and msg['sig'] == 1:
-                    LOG.info(f"Successfully established session!")
-                    LOG.info(f"Requesting market data subscription...")
-                    await request_market_data()
-
-            elif msg['q'] == EXBERRY_CANCEL_ORDER:
-                if 'd' in msg and 'orderId' in msg['d']:
-                    commands.append(create(EXBERRY.CancelOrderSuccess, {
-                        'integrationParty': env.party,
-                        'sid': msg['sid']
-                    }))
-                elif 'errorType' in msg:
-                    msg_data = msg['d']
-                    # this is a cancel order reject
-                    commands.append(create(EXBERRY.CancelOrderFailure, {
-                        'integrationParty': env.party,
-                        'sid': msg['sid'],
-                        'errorCode': msg_data['errorCode'],
-                        'errorMessage': msg_data['errorMessage'],
-                    }))
+        elif msg['q'] == EXBERRY_CANCEL_ORDER:
+            if 'd' in msg and 'orderId' in msg['d']:
+                commands.append(create(EXBERRY.CancelOrderSuccess, {
+                    'integrationParty': env.party,
+                    'sid': msg['sid']
+                }))
+            elif 'errorType' in msg:
+                msg_data = msg['d']
+                # this is a cancel order reject
+                commands.append(create(EXBERRY.CancelOrderFailure, {
+                    'integrationParty': env.party,
+                    'sid': msg['sid'],
+                    'errorCode': msg_data['errorCode'],
+                    'errorMessage': msg_data['errorMessage'],
+                }))
 
         return commands
 
