@@ -18,6 +18,7 @@ EXBERRY_CREATE_SESSION = 'exchange.market/createSession'
 EXBERRY_PLACE_ORDER = 'v1/exchange.market/placeOrder'
 EXBERRY_ORDERBOOK_DEPTH = 'v1/exchange.market/orderBookDepth'
 EXBERRY_CANCEL_ORDER = 'v1/exchange.market/cancelOrder'
+EXBERRY_MASS_CANCEL = 'v1/exchange.market/massCancel'
 
 
 class EXBERRY:
@@ -32,6 +33,9 @@ class EXBERRY:
     Instrument = 'Exberry.Integration:Instrument'
     FailedInstrumentRequest = 'Exberry.Integration:FailedInstrumentRequest'
     ExecutionReport = 'Exberry.Integration:ExecutionReport'
+    MassCancelRequest = 'Exberry.Integration:MassCancelRequest'
+    MassCancelSuccess = 'Exberry.Integration:MassCancelSuccess'
+    MassCancelFailure = 'Exberry.Integration:MassCancelFailure'
 
 
 @dataclass
@@ -127,7 +131,6 @@ def integration_exberry_main(
     @events.ledger.contract_created(EXBERRY.CancelOrderRequest)
     async def handle_cancel_order_request(event):
         LOG.info(f"{EXBERRY.CancelOrderRequest} created!")
-        # TODO: make cancel request and put in queue
         cancel_order_req = cancel_order(event.cdata)
         await outbound_queue.put(cancel_order_req)
         return exercise(event.cid, 'Archive', {})
@@ -240,6 +243,31 @@ def integration_exberry_main(
                     'errorMessage': msg_data['errorMessage'],
                 })
 
+        elif msg['q'] == EXBERRY_MASS_CANCEL:
+            if 'd' in msg and 'numberOfOrders' in msg['d']:
+                msg_data = msg['d']
+                return create(EXBERRY.MassCancelSuccess, {
+                    'integrationParty': env.party,
+                    'sid': msg['sid'],
+                    'numberOfOrders': msg_data['numberOfOrders']
+                })
+            elif 'errorType' in msg:
+                msg_data = msg['d']
+                # this is a mass cancel order reject
+                return create(EXBERRY.MassCancelFailure, {
+                    'integrationParty': env.party,
+                    'sid': msg['sid'],
+                    'errorCode': msg_data['errorCode'],
+                    'errorMessage': msg_data['errorMessage'],
+                })
+
+    @events.ledger.contract_created(EXBERRY.MassCancelRequest)
+    async def handle_mass_cancel_request(event):
+        LOG.info(f"{EXBERRY.MassCancelRequest} created!")
+        mass_cancel_req = mass_cancel(event.cdata)
+        await outbound_queue.put(mass_cancel_req)
+        return exercise(event.cid, 'Archive', {})
+
 
     async def fetch_token() -> str:
         async with ClientSession() as session:
@@ -304,6 +332,17 @@ def integration_exberry_main(
             'sid': cancel_req['mpOrderId'],
         }
         return cancel_order_json
+
+    def mass_cancel(mass_cancel_req):
+        mass_cancel_json = {
+            'd': {
+                'instrument': mass_cancel_req['instrument']
+            },
+            'q': EXBERRY_MASS_CANCEL,
+            'sid': mass_cancel_req['sid']
+        }
+        return mass_cancel_json
+
 
 
     async def connect():
