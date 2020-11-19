@@ -178,11 +178,10 @@ def integration_exberry_main(
 
     @events.queue.message()
     async def process_inbound_messages(msg):
-        commands = []
 
         if msg['q'] == EXBERRY_ORDERBOOK_DEPTH and msg['d']['messageType'] == 'Executed':
             msg_data = msg['d']
-            commands.append(create(EXBERRY.ExecutionReport, {
+            return create(EXBERRY.ExecutionReport, {
                 'sid': msg['sid'],
                 'eventId': msg_data['eventId'],
                 'eventTimestamp': str(msg_data['eventTimestamp']),
@@ -198,26 +197,26 @@ def integration_exberry_main(
                 'executedQuantity': msg_data['executedQuantity'],
                 'executedPrice': msg_data['executedPrice'],
                 'integrationParty': env.party,
-            }))
+            })
 
         elif msg['q'] == EXBERRY_PLACE_ORDER:
             if 'd' in msg and 'orderId' in msg['d']:
                 msg_data = msg['d']
                 # this is a place order ack
-                commands.append(create(EXBERRY.NewOrderSuccess, {
+                return create(EXBERRY.NewOrderSuccess, {
                     'sid': msg['sid'],
                     'orderId': msg_data['orderId'],
                     'integrationParty': env.party
-                }))
+                })
             elif 'errorType' in msg:
                 msg_data = msg['d']
                 # this is a place order reject
-                commands.append(create(EXBERRY.NewOrderFailure, {
+                return create(EXBERRY.NewOrderFailure, {
                     'sid': msg['sid'],
                     'errorCode': msg_data['errorCode'],
                     'errorMessage': msg_data['errorMessage'],
                     'integrationParty': env.party
-                }))
+                })
 
         elif msg['q'] == EXBERRY_CREATE_SESSION:
             if 'sig' in msg and msg['sig'] == 1:
@@ -227,21 +226,19 @@ def integration_exberry_main(
 
         elif msg['q'] == EXBERRY_CANCEL_ORDER:
             if 'd' in msg and 'orderId' in msg['d']:
-                commands.append(create(EXBERRY.CancelOrderSuccess, {
+                return create(EXBERRY.CancelOrderSuccess, {
                     'integrationParty': env.party,
                     'sid': msg['sid']
-                }))
+                })
             elif 'errorType' in msg:
                 msg_data = msg['d']
                 # this is a cancel order reject
-                commands.append(create(EXBERRY.CancelOrderFailure, {
+                return create(EXBERRY.CancelOrderFailure, {
                     'integrationParty': env.party,
                     'sid': msg['sid'],
                     'errorCode': msg_data['errorCode'],
                     'errorMessage': msg_data['errorMessage'],
-                }))
-
-        return commands
+                })
 
 
     async def fetch_token() -> str:
