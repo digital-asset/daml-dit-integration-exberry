@@ -4,7 +4,7 @@
 catalog:
     name: dabl-integration-exberry
     group_id: com.digitalasset
-    version: 0.7.0
+    version: 0.7.1
     short_description: Exberry
     description: Exberry Trading and Management API Integration
     author: Digital Asset (Switzerland) GmbH
@@ -51,8 +51,4 @@ integration_types:
           - id: secret
             name: API Secret
             description: The Exberry API Secret
-            field_type: text
-          - id: interval
-            name: Processing Interval
-            description: The consumer side processing interval
             field_type: text
