@@ -149,10 +149,10 @@ def integration_exberry_main(
                 'quoteCurrency': instrument['quoteCurrency'],
                 'instrumentDescription': instrument['instrumentDescription'],
                 'calendarId': instrument['calendarId'],
-                'pricePrecision': int(instrument['pricePrecision']),
-                'quantityPrecision': int(instrument['quantityPrecision']),
-                'minQuantity': float(instrument['minQuantity']),
-                'maxQuantity': float(instrument['maxQuantity']),
+                'pricePrecision': str(instrument['pricePrecision']),
+                'quantityPrecision': str(instrument['quantityPrecision']),
+                'minQuantity': str(instrument['minQuantity']),
+                'maxQuantity': str(instrument['maxQuantity']),
                 'status': instrument['status']
             }
             LOG.info(f'Integration ==> Exberry: POST {data_dict}')
