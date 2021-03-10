@@ -6,8 +6,9 @@ name: dabl-integration-exberry
 version: 1.0.0
 source: daml
 parties:
-  - Alice
-  - Bob
+  # - Alice
+  # - Bob
+  - John
 dependencies:
   - daml-prim
   - daml-stdlib

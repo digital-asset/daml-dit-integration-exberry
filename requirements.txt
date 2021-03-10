@@ -1,5 +1,5 @@
 ./lib/PyYAML-5.3.1.tar.gz
-dazl==7.0.2
+dazl==7.3.5
 yarl==1.5.1
 multidict==4.7.6
 idna==2.10
