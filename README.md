@@ -4,7 +4,7 @@ This is a DAML integration implementing the [Exberry APIs](https://docs.exberry.
 
 ## To configure
 
-The integration requires a set of credentials and URLs for connecting and authenticating to Exberry. 
+The integration requires a set of credentials and URLs for connecting and authenticating to Exberry.
 
 
 - Username: your user name for the Management API
@@ -17,3 +17,10 @@ The integration requires a set of credentials and URLs for connecting and authen
 - Secret: The API secret for authenticating to Exberry’s matching engine
 
 > This integration is under active development. Please raise any Github issues or direct your questions to the [DAML forum](https://discuss.daml.com/)
+
+
+## Adapter
+
+When running the Exberry Integration on DamlHub, you may want to use a python adapter bot to listen
+for and create integration contracts based on the needs of your app. A starter template can be found in
+the `adapter_template` folder, and a more concrete example can be found in the [Daml Marketplace](https://github.com/digital-asset/da-marketplace/tree/v0.1.17/exberry_adapter).
