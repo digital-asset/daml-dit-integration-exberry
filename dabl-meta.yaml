@@ -11,6 +11,7 @@ catalog:
     license: Apache-2.0
     tags: [ integration ]
     icon_file: exberry-icon.png
+    source_url: https://github.com/digital-asset/daml-dit-integration-exberry
 integration_types:
     - id: com.projectdabl.integrations.exberry.integration
       name: Exberry
