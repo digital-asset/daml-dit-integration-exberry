@@ -37,14 +37,6 @@ class EXBERRY:
     MassCancelSuccess = 'Exberry.Integration:MassCancelSuccess'
     MassCancelFailure = 'Exberry.Integration:MassCancelFailure'
 
-class MARKETPLACE:
-    OrderRequest = 'Marketplace.Trading:OrderRequest'
-    OrderCancelRequest = 'Marketplace.Trading:OrderCancelRequest'
-    Order = 'Marketplace.Trading:Order'
-    Token = 'Marketplace.Token:Token'
-    MarketPair = 'Marketplace.Token:MarketPair'
-    ExberrySID = 'Marketplace.Utils:ExberrySID'
-
 
 @dataclass
 class ExberryIntegrationEnv(IntegrationEnvironment):
