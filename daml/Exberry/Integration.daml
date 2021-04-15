@@ -16,6 +16,7 @@ data OrderData = OrderData
     timeInForce : Text
     mpOrderId : Int
     userId : Text
+    expiryDate : Int
   deriving (Ord, Eq, Show)
 
 

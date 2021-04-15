@@ -128,6 +128,7 @@ def integration_exberry_main(
         return exercise(event.cid, 'Archive', {})
 
 
+
     @events.ledger.contract_created(EXBERRY.CancelOrderRequest)
     async def handle_cancel_order_request(event):
         LOG.info(f"{EXBERRY.CancelOrderRequest} created!")
@@ -312,12 +313,20 @@ def integration_exberry_main(
                 'price': float(order_data['price']),
                 'side': order_data['side'],
                 'timeInForce': order_data['timeInForce'],
+                'expiryDate': order_data['expiryDate'],
                 'mpOrderId': order_data['mpOrderId'],
                 'userId': order_data['userId'],
             },
             'q': EXBERRY_PLACE_ORDER,
             'sid': order_data['mpOrderId']
         }
+        # Market orders cannot include a price on their order submission
+        if order_data['orderType'] == 'Market':
+            order_json['d'].pop('price')
+        # Only GTD (Good Till Date) orders can submit an expirydate on their order
+        if order_data['timeInForce'] != 'GTD':
+            order_json['d'].pop('expiryDate')
+
         return order_json
 
 
