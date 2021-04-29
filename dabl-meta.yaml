@@ -4,7 +4,7 @@
 catalog:
     name: dabl-integration-exberry
     group_id: com.digitalasset
-    version: 0.7.2
+    version: 0.7.3
     short_description: Exberry
     description: Exberry Trading and Management API Integration
     author: Digital Asset (Switzerland) GmbH
@@ -28,10 +28,6 @@ integration_types:
             name: Password
             description: The Exberry Password
             field_type: text
-          - id: clientId
-            name: Client Id
-            description: The Exberry Client Id
-            field_type: text
           - id: tradingApiUrl
             name: Trading API URL
             description: The Exberry trading API URL
@@ -39,10 +35,6 @@ integration_types:
           - id: adminApiUrl
             name: Admin API URL
             description: The Exberry admin API URL
-            field_type: text
-          - id: tokenUrl
-            name: Token URL
-            description: The Exberry token request URL
             field_type: text
           - id: apiKey
             name: API Key
