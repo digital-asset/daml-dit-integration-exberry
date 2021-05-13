@@ -110,7 +110,7 @@ template CreateInstrumentRequest
       CreateInstrumentRequest_Failure : ContractId FailedInstrumentRequest
         with
           message : Text
-          errorData : Text
+          name : Text
           code : Text
         do
           create FailedInstrumentRequest with ..
@@ -148,37 +148,10 @@ template FailedInstrumentRequest
     maxQuantity : Decimal
     status : Text
     message : Text
-    errorData : Text
+    name : Text
     code : Text
   where
     signatory integrationParty
-
-template GetCalendarsRequest
-  with
-    integrationParty : Party
-  where
-    signatory integrationParty
-
--- Integration <-- Exberry
-template Calendar
-  with
-    integrationParty : Party
-    id : Text
-    name : Text
-    tradingDays : [Text]
-    timeZone : Text -- "+03:00, "-02:00" etc
-    holidays : [Holiday]
-    auctions : [Auction]
-  where
-    signatory integrationParty
-
-data Holiday = Holiday with
-    date : Text -- Date YYYY-MM-DD
-    optCloseTime : Optional Time -- hh:mm String
-    optName : Text
-  deriving (Show, Eq)
-
-data Auction = Auction deriving (Show, Eq) -- TODO: implement with fields
 
 -- Integration <-- Exberry
 template ExecutionReport

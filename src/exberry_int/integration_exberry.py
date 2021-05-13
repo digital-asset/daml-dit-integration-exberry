@@ -164,7 +164,7 @@ def integration_exberry_main(
                                     'CreateInstrumentRequest_Failure',
                                     {
                                         'message': json_resp['message'],
-                                        'errorData': json_resp['data'],
+                                        'name': json_resp['data'],
                                         'code': json_resp['code']
                                     })
                 elif 'id' in json_resp:
