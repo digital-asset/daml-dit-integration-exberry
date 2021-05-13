@@ -55,13 +55,15 @@ def integration_exberry_main(
     events: 'IntegrationEvents'):
 
     outbound_queue = asyncio.Queue()
+    global session_started
+    session_started = False
 
     async def enqueue_outbound(msg: dict):
         LOG.info(f"Enqueuing outbound message: {msg}")
         await outbound_queue.put(msg)
 
 
-    async def request_session(api_key: str, secret_str: str):
+    async def request_session(api_key: str, secret_str: str, ws):
         time_str = str(int(time.time() * 1000))
         LOG.info(f"Computing signature...")
         signature = compute_signature(api_key, secret_str, time_str)
@@ -75,7 +77,8 @@ def integration_exberry_main(
                 'signature': signature
             }
         }
-        await enqueue_outbound(create_session)
+        await ws.send(create_session)
+        # await enqueue_outbound(create_session)
 
 
     async def request_market_data():
@@ -90,10 +93,15 @@ def integration_exberry_main(
     async def producer_coro(ws):
         try:
             while True:
+                # global session_started
+                # if session_started:
+                LOG.info("session")
                 LOG.info("Awaiting next message to send...")
                 request_to_send = await outbound_queue.get()
                 LOG.info(f"Integration --> Exberry: {request_to_send}")
                 await ws.send_json(request_to_send)
+                # else:
+                    # LOG.info("nothing")
         except Exception as e:
             LOG.exception(f"Error in producer coroutine: {e}")
         finally:
@@ -148,6 +156,7 @@ def integration_exberry_main(
                 'symbol': instrument['symbol'],
                 'quoteCurrency': instrument['quoteCurrency'],
                 'instrumentDescription': instrument['instrumentDescription'],
+                'description': instrument['instrumentDescription'],
                 'calendarId': instrument['calendarId'],
                 'pricePrecision': str(instrument['pricePrecision']),
                 'quantityPrecision': str(instrument['quantityPrecision']),
@@ -225,6 +234,8 @@ def integration_exberry_main(
             if 'sig' in msg and msg['sig'] == 1:
                 LOG.info(f"Successfully established session!")
                 LOG.info(f"Requesting market data subscription...")
+                global session_started
+                session_started = True
                 await request_market_data()
 
         elif msg['q'] == EXBERRY_CANCEL_ORDER:
@@ -346,6 +357,7 @@ def integration_exberry_main(
 
 
     async def connect():
+        LOG.info("HELLLOOOOOOOOOO")
         LOG.info(f"Connecting to the Exberry Trading API at {env.tradingApiUrl} ...")
         ws = await ClientSession().ws_connect(env.tradingApiUrl)
         LOG.info("...Connected to the Exberry Trading API")
@@ -357,9 +369,11 @@ def integration_exberry_main(
         receiver_task = asyncio.create_task(consumer_coro(ws))
 
         LOG.info(f"Preparing session coroutine...")
-        session_task = asyncio.create_task(request_session(env.apiKey, env.secret))
+        request_session(env.apiKey, env.secret, ws)
+        # session_task = asyncio.create_task(request_session(env.apiKey, env.secret))
 
-        asyncio.gather(*[session_task, sender_task, receiver_task])
+        asyncio.gather(*[sender_task, receiver_task])
+        # asyncio.gather(*[session_task, sender_task, receiver_task])
 
 
     return connect()
