@@ -5,7 +5,6 @@ daml 1.2
 
 module Exberry.Integration where
 
-import DA.Date
 
 data OrderData = OrderData
   with
@@ -152,6 +151,7 @@ template FailedInstrumentRequest
     code : Text
   where
     signatory integrationParty
+
 
 -- Integration <-- Exberry
 template ExecutionReport

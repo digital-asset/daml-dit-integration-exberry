@@ -145,7 +145,7 @@ def integration_exberry_main(
             data_dict = {
                 'symbol': instrument['symbol'],
                 'quoteCurrency': instrument['quoteCurrency'],
-                'instrumentDescription': instrument['instrumentDescription'],
+                'description': instrument['instrumentDescription'],
                 'calendarId': instrument['calendarId'],
                 'pricePrecision': str(instrument['pricePrecision']),
                 'quantityPrecision': str(instrument['quantityPrecision']),
@@ -275,7 +275,8 @@ def integration_exberry_main(
                 'password': env.password,
             }
             LOG.info(f'Integration ==> Exberry: POST {data_dict}')
-            async with session.post(env.tokenUrl, json=data_dict) as resp:
+            token_url = env.adminApiUrl + '/auth/token'
+            async with session.post(token_url, json=data_dict) as resp:
                 json_resp = await resp.json()
                 LOG.info(f'Integration <== Exberry: {json_resp}')
                 return json_resp['token']
