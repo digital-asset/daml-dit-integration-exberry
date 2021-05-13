@@ -42,10 +42,8 @@ class EXBERRY:
 class ExberryIntegrationEnv(IntegrationEnvironment):
     username: str
     password: str
-    clientId: str
     tradingApiUrl: str
     adminApiUrl: str
-    tokenUrl: str
     apiKey: str
     secret: str
 
@@ -147,7 +145,7 @@ def integration_exberry_main(
             data_dict = {
                 'symbol': instrument['symbol'],
                 'quoteCurrency': instrument['quoteCurrency'],
-                'instrumentDescription': instrument['instrumentDescription'],
+                'description': instrument['instrumentDescription'],
                 'calendarId': instrument['calendarId'],
                 'pricePrecision': str(instrument['pricePrecision']),
                 'quantityPrecision': str(instrument['quantityPrecision']),
@@ -165,9 +163,9 @@ def integration_exberry_main(
                     return exercise(event.cid,
                                     'CreateInstrumentRequest_Failure',
                                     {
-                                        'message': json_resp['data']['data'],
-                                        'name': json_resp['data']['name'],
-                                        'code': json_resp['data']['code']
+                                        'message': json_resp['message'],
+                                        'name': json_resp['data'],
+                                        'code': json_resp['code']
                                     })
                 elif 'id' in json_resp:
                     return exercise(event.cid,
@@ -273,25 +271,15 @@ def integration_exberry_main(
         async with ClientSession() as session:
             LOG.info("Requesting a token...")
             data_dict = {
-                'grant_type': 'password',
-                'username': env.username,
+                'email': env.username,
                 'password': env.password,
-                'audience': 'bo-gateway',
-                'scope': 'Instrument/create ' \
-                    'Instrument/update ' \
-                    'Instrument/get ' \
-                    'Instrument/list ' \
-                    'HaltResume/halt ' \
-                    'HaltResume/resume ' \
-                    'HaltResume/haltAll ' \
-                    'HaltResume/resumeAll',
-                'client_id': env.clientId
             }
             LOG.info(f'Integration ==> Exberry: POST {data_dict}')
-            async with session.post(env.tokenUrl, data=data_dict) as resp:
+            token_url = env.adminApiUrl + '/auth/token'
+            async with session.post(token_url, json=data_dict) as resp:
                 json_resp = await resp.json()
                 LOG.info(f'Integration <== Exberry: {json_resp}')
-                return json_resp['access_token']
+                return json_resp['token']
 
 
     def compute_signature(api_key, secret_str: str, time_str: str):
