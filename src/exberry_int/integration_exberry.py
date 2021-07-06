@@ -43,10 +43,8 @@ class EXBERRY:
 class ExberryIntegrationEnv(IntegrationEnvironment):
     username: str
     password: str
-    clientId: str
     tradingApiUrl: str
     adminApiUrl: str
-    tokenUrl: str
     apiKey: str
     secret: str
 
@@ -56,17 +54,27 @@ def integration_exberry_main(
     events: 'IntegrationEvents'):
 
     outbound_queue = asyncio.Queue()
+    session_started = asyncio.Event()
+
+    LOG.info(f"Preparing session...")
+    order_book_depth = {
+        'q': EXBERRY_ORDERBOOK_DEPTH,
+        'sid': 0,
+        'd': {}
+    }
+    outbound_queue.put_nowait(order_book_depth)
 
     async def enqueue_outbound(msg: dict):
         LOG.info(f"Enqueuing outbound message: {msg}")
         await outbound_queue.put(msg)
 
 
-    async def request_session(api_key: str, secret_str: str):
+    async def request_session(api_key: str, secret_str: str, ws):
         time_str = str(int(time.time() * 1000))
         LOG.info(f"Computing signature...")
         signature = compute_signature(api_key, secret_str, time_str)
         LOG.info(f"...OK")
+
         create_session = {
             'q': EXBERRY_CREATE_SESSION,
             'sid': 0,
@@ -76,7 +84,8 @@ def integration_exberry_main(
                 'signature': signature
             }
         }
-        await enqueue_outbound(create_session)
+        await ws.send_json(create_session)
+        LOG.info("Waiting for session request to be confirmed...")
 
 
     async def request_market_data():
@@ -91,6 +100,7 @@ def integration_exberry_main(
     async def producer_coro(ws):
         try:
             while True:
+                await session_started.wait()
                 LOG.info("Awaiting next message to send...")
                 request_to_send = await outbound_queue.get()
                 LOG.info(f"Integration --> Exberry: {request_to_send}")
@@ -149,7 +159,7 @@ def integration_exberry_main(
             data_dict = {
                 'symbol': instrument['symbol'],
                 'quoteCurrency': instrument['quoteCurrency'],
-                'instrumentDescription': instrument['instrumentDescription'],
+                'description': instrument['instrumentDescription'],
                 'calendarId': instrument['calendarId'],
                 'pricePrecision': str(instrument['pricePrecision']),
                 'quantityPrecision': str(instrument['quantityPrecision']),
@@ -167,9 +177,9 @@ def integration_exberry_main(
                     return exercise(event.cid,
                                     'CreateInstrumentRequest_Failure',
                                     {
-                                        'message': json_resp['data']['data'],
-                                        'name': json_resp['data']['name'],
-                                        'code': json_resp['data']['code']
+                                        'message': json_resp['message'],
+                                        'name': json_resp['data'],
+                                        'code': json_resp['code']
                                     })
                 elif 'id' in json_resp:
                     return exercise(event.cid,
@@ -236,8 +246,7 @@ def integration_exberry_main(
         elif msg['q'] == EXBERRY_CREATE_SESSION:
             if 'sig' in msg and msg['sig'] == 1:
                 LOG.info(f"Successfully established session!")
-                LOG.info(f"Requesting market data subscription...")
-                await request_market_data()
+                session_started.set()
 
         elif msg['q'] == EXBERRY_CANCEL_ORDER:
             if 'd' in msg and 'orderId' in msg['d']:
@@ -285,25 +294,15 @@ def integration_exberry_main(
         async with ClientSession() as session:
             LOG.info("Requesting a token...")
             data_dict = {
-                'grant_type': 'password',
-                'username': env.username,
+                'email': env.username,
                 'password': env.password,
-                'audience': 'bo-gateway',
-                'scope': 'Instrument/create ' \
-                    'Instrument/update ' \
-                    'Instrument/get ' \
-                    'Instrument/list ' \
-                    'HaltResume/halt ' \
-                    'HaltResume/resume ' \
-                    'HaltResume/haltAll ' \
-                    'HaltResume/resumeAll',
-                'client_id': env.clientId
             }
             LOG.info(f'Integration ==> Exberry: POST {data_dict}')
-            async with session.post(env.tokenUrl, data=data_dict) as resp:
+            token_url = env.adminApiUrl + '/auth/token'
+            async with session.post(token_url, json=data_dict) as resp:
                 json_resp = await resp.json()
                 LOG.info(f'Integration <== Exberry: {json_resp}')
-                return json_resp['access_token']
+                return json_resp['token']
 
 
     def compute_signature(api_key, secret_str: str, time_str: str):
@@ -376,10 +375,10 @@ def integration_exberry_main(
         LOG.info(f"Preparing consumer coroutine...")
         receiver_task = asyncio.create_task(consumer_coro(ws))
 
-        LOG.info(f"Preparing session coroutine...")
-        session_task = asyncio.create_task(request_session(env.apiKey, env.secret))
+        LOG.info(f"Requesting market session...")
+        await request_session(env.apiKey, env.secret, ws)
 
-        asyncio.gather(*[session_task, sender_task, receiver_task])
+        asyncio.gather(*[sender_task, receiver_task])
 
 
     return connect()
