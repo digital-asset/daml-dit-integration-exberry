@@ -26,6 +26,7 @@ class EXBERRY:
     NewOrderRequest = 'Exberry.Integration:NewOrderRequest'
     NewOrderSuccess = 'Exberry.Integration:NewOrderSuccess'
     NewOrderFailure = 'Exberry.Integration:NewOrderFailure'
+    NewOrderCancelled = 'Exberry.Integration:NewOrderCancelled'
     CancelOrderRequest = 'Exberry.Integration:CancelOrderRequest'
     CancelOrderSuccess = 'Exberry.Integration:CancelOrderSuccess'
     CancelOrderFailure = 'Exberry.Integration:CancelOrderFailure'
@@ -183,25 +184,35 @@ def integration_exberry_main(
     @events.queue.message()
     async def process_inbound_messages(msg):
 
-        if msg['q'] == EXBERRY_ORDERBOOK_DEPTH and msg['d']['messageType'] == 'Executed':
-            msg_data = msg['d']
-            return create(EXBERRY.ExecutionReport, {
-                'sid': msg['sid'],
-                'eventId': msg_data['eventId'],
-                'eventTimestamp': str(msg_data['eventTimestamp']),
-                'instrument': msg_data['instrument'],
-                'trackingNumber': msg_data['trackingNumber'],
-                'makerMpId': msg_data['makerMpId'],
-                'makerMpOrderId': msg_data['makerMpOrderId'],
-                'makerOrderId': msg_data['makerOrderId'],
-                'takerMpId': msg_data['takerMpId'],
-                'takerMpOrderId': msg_data['takerMpOrderId'],
-                'takerOrderId': msg_data['takerOrderId'],
-                'matchId': msg_data['matchId'],
-                'executedQuantity': msg_data['executedQuantity'],
-                'executedPrice': msg_data['executedPrice'],
-                'integrationParty': env.party,
-            })
+        if msg['q'] == EXBERRY_ORDERBOOK_DEPTH:
+            if msg['d']['messageType'] == 'Executed':
+                msg_data = msg['d']
+                return create(EXBERRY.ExecutionReport, {
+                    'sid': msg['sid'],
+                    'eventId': msg_data['eventId'],
+                    'eventTimestamp': str(msg_data['eventTimestamp']),
+                    'instrument': msg_data['instrument'],
+                    'trackingNumber': msg_data['trackingNumber'],
+                    'makerMpId': msg_data['makerMpId'],
+                    'makerMpOrderId': msg_data['makerMpOrderId'],
+                    'makerOrderId': msg_data['makerOrderId'],
+                    'takerMpId': msg_data['takerMpId'],
+                    'takerMpOrderId': msg_data['takerMpOrderId'],
+                    'takerOrderId': msg_data['takerOrderId'],
+                    'matchId': msg_data['matchId'],
+                    'executedQuantity': msg_data['executedQuantity'],
+                    'executedPrice': msg_data['executedPrice'],
+                    'integrationParty': env.party,
+                })
+            elif msg['d']['messageType'] == 'Cancelled':
+                msg_data = msg['d']
+                # Cancelled order with cancelled quantity
+                return create(EXBERRY.NewOrderCancelled, {
+                    'orderId': msg_data['orderId'],
+                    'mpOrderId': msg_data['mpOrderId'],
+                    'cancelledQuantity': msg_data['cancelledQuantity'],
+                    'integrationParty': env.party
+                })
 
         elif msg['q'] == EXBERRY_PLACE_ORDER:
             if 'd' in msg and 'orderId' in msg['d']:

@@ -49,6 +49,14 @@ template NewOrderFailure
   where
     signatory integrationParty
 
+template NewOrderCancelled
+  with
+    integrationParty : Party
+    mpOrderId : Int
+    orderId : Int
+    cancelledQuantity : Decimal
+  where
+    signatory integrationParty
 
 -- Integration --> Exberry
 template CancelOrderRequest
