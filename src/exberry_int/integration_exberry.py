@@ -48,16 +48,13 @@ class ExberryIntegrationEnv(IntegrationEnvironment):
     secret: str
 
 LAST_TRACKING_NUMBER = None
-LAST_ORDERBOOK_SID = 0
 
 def make_order_book_depth():
     global LAST_TRACKING_NUMBER
-    global LAST_ORDERBOOK_SID
-    LAST_ORDERBOOK_SID += 1
     data = { 'trackingNumber': LAST_TRACKING_NUMBER } if LAST_TRACKING_NUMBER else {}
     return {
         'q': EXBERRY_ORDERBOOK_DEPTH,
-        'sid': LAST_ORDERBOOK_SID,
+        'sid': 0,
         'd': data
     }
 
@@ -204,7 +201,7 @@ def integration_exberry_main(
             error_code = msg['d']['errorCode']
             error_message = msg['d']['errorMessage']
             LOG.error(f'Encountered erorr - Type: {error_type}, Code: {error_code}, Message: {error_message}')
-            if error_code == '1200':
+            if error_code == 1200:
                 LOG.warning('Possibly lost order book subscription, resubscribing...')
                 await outbound_queue.put(make_order_book_depth())
         elif msg['q'] == EXBERRY_ORDERBOOK_DEPTH:
