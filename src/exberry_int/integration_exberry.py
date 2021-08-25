@@ -196,37 +196,38 @@ def integration_exberry_main(
 
     @events.queue.message()
     async def process_inbound_messages(msg):
-        if 'errorType' in msg:
-            error_type = msg['errorType']
-            error_code = msg['d']['errorCode']
-            error_message = msg['d']['errorMessage']
-            LOG.error(f'Encountered erorr - Type: {error_type}, Code: {error_code}, Message: {error_message}')
-            if error_code == 1200:
-                LOG.warning('Possibly lost order book subscription, resubscribing...')
-                await outbound_queue.put(make_order_book_depth())
-        elif msg['q'] == EXBERRY_ORDERBOOK_DEPTH:
-            msg_data = msg['d']
-            if 'trackingNumber' in msg_data:
-                global LAST_TRACKING_NUMBER
-                LAST_TRACKING_NUMBER = msg_data['trackingNumber']
-            if msg_data['messageType'] == 'Executed':
-                return create(EXBERRY.ExecutionReport, {
-                    'sid': msg['sid'],
-                    'eventId': msg_data['eventId'],
-                    'eventTimestamp': str(msg_data['eventTimestamp']),
-                    'instrument': msg_data['instrument'],
-                    'trackingNumber': msg_data['trackingNumber'],
-                    'makerMpId': msg_data['makerMpId'],
-                    'makerMpOrderId': msg_data['makerMpOrderId'],
-                    'makerOrderId': msg_data['makerOrderId'],
-                    'takerMpId': msg_data['takerMpId'],
-                    'takerMpOrderId': msg_data['takerMpOrderId'],
-                    'takerOrderId': msg_data['takerOrderId'],
-                    'matchId': msg_data['matchId'],
-                    'executedQuantity': msg_data['executedQuantity'],
-                    'executedPrice': msg_data['executedPrice'],
-                    'integrationParty': env.party,
-                })
+        if msg['q'] == EXBERRY_ORDERBOOK_DEPTH:
+            if 'errorType' in msg:
+                error_type = msg['errorType']
+                error_code = msg['d']['errorCode']
+                error_message = msg['d']['errorMessage']
+                LOG.error(f'Orderbook Error - Type: {error_type}, Code: {error_code}, Message: {error_message}')
+                if error_code == 1200:
+                    LOG.warning('Possibly lost order book subscription, resubscribing...')
+                    await outbound_queue.put(make_order_book_depth())
+            else:
+                msg_data = msg['d']
+                if 'trackingNumber' in msg_data:
+                    global LAST_TRACKING_NUMBER
+                    LAST_TRACKING_NUMBER = msg_data['trackingNumber']
+                if msg_data['messageType'] == 'Executed':
+                    return create(EXBERRY.ExecutionReport, {
+                        'sid': msg['sid'],
+                        'eventId': msg_data['eventId'],
+                        'eventTimestamp': str(msg_data['eventTimestamp']),
+                        'instrument': msg_data['instrument'],
+                        'trackingNumber': msg_data['trackingNumber'],
+                        'makerMpId': msg_data['makerMpId'],
+                        'makerMpOrderId': msg_data['makerMpOrderId'],
+                        'makerOrderId': msg_data['makerOrderId'],
+                        'takerMpId': msg_data['takerMpId'],
+                        'takerMpOrderId': msg_data['takerMpOrderId'],
+                        'takerOrderId': msg_data['takerOrderId'],
+                        'matchId': msg_data['matchId'],
+                        'executedQuantity': msg_data['executedQuantity'],
+                        'executedPrice': msg_data['executedPrice'],
+                        'integrationParty': env.party,
+                    })
         elif msg['q'] == EXBERRY_PLACE_ORDER:
             if 'd' in msg and 'orderId' in msg['d']:
                 msg_data = msg['d']
