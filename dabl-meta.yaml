@@ -4,7 +4,7 @@
 catalog:
     name: dabl-integration-exberry
     group_id: com.digitalasset
-    version: 0.7.5
+    version: 0.7.6
     short_description: Exberry
     description: Exberry Trading and Management API Integration
     author: Digital Asset (Switzerland) GmbH
