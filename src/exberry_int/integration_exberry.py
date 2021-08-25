@@ -202,7 +202,9 @@ def integration_exberry_main(
                 error_code = msg['d']['errorCode']
                 error_message = msg['d']['errorMessage']
                 LOG.error(f'Orderbook Error - Type: {error_type}, Code: {error_code}, Message: {error_message}')
-                if error_code == 1200:
+
+                # error code 400 indicates there is already an existing subscription, otherwise resubscibe
+                if error_code != 400:
                     LOG.warning('Possibly lost order book subscription, resubscribing...')
                     await outbound_queue.put(make_order_book_depth())
             else:
