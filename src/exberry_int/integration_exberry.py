@@ -5,6 +5,7 @@ import hashlib
 import hmac
 import logging
 import time
+from typing import Optional
 
 from aiohttp import ClientSession, WSMsgType
 from dazl import create, exercise
@@ -48,6 +49,7 @@ class ExberryIntegrationEnv(IntegrationEnvironment):
     secret: str
 
 LAST_TRACKING_NUMBER = None
+CURRENT_PRIORITY = 0
 
 def make_order_book_depth():
     global LAST_TRACKING_NUMBER
@@ -62,17 +64,21 @@ def integration_exberry_main(
     env: 'ExberryIntegrationEnv',
     events: 'IntegrationEvents'):
 
-    outbound_queue = asyncio.Queue()
-    pending_outbound_queue = asyncio.Queue()
+    outbound_queue = asyncio.PriorityQueue()
     session_started = asyncio.Event()
 
-    LOG.info(f"Preparing session...")
-    outbound_queue.put_nowait(make_order_book_depth())
-
-
-    async def enqueue_outbound(msg: dict):
+    async def enqueue_outbound(msg: dict, priority: Optional[int] = None):
+        global CURRENT_PRIORITY
         LOG.info(f"Enqueuing outbound message: {msg}")
-        await outbound_queue.put(msg)
+        if not priority:
+            CURRENT_PRIORITY = 1 if outbound_queue.qsize() == 0 else CURRENT_PRIORITY + 1
+            priority = CURRENT_PRIORITY
+        await outbound_queue.put((priority, msg))
+
+
+    async def dequeue_outbound() -> dict:
+        _, msg = await outbound_queue.get()
+        return msg
 
 
     async def request_session(api_key: str, secret_str: str, ws):
@@ -94,13 +100,62 @@ def integration_exberry_main(
         LOG.info("Waiting for session request to be confirmed...")
 
 
-    async def request_market_data():
-        order_book_depth = {
-            'q': EXBERRY_ORDERBOOK_DEPTH,
-            'sid': 0,
-            'd': {}
-        }
-        await enqueue_outbound(order_book_depth)
+    async def fetch_token() -> str:
+        async with ClientSession() as session:
+            LOG.info("Requesting a token...")
+            data_dict = {
+                'email': env.username,
+                'password': env.password,
+            }
+            LOG.info(f'Integration ==> Exberry: POST {data_dict}')
+            token_url = env.adminApiUrl + '/auth/token'
+            async with session.post(token_url, json=data_dict) as resp:
+                json_resp = await resp.json()
+                LOG.info(f'Integration <== Exberry: {json_resp}')
+                return json_resp['token']
+
+
+    def compute_signature(api_key, secret_str: str, time_str: str):
+        message_str = f'''"apiKey":"{api_key}","timestamp":"{time_str}"'''
+        message = bytes(message_str, 'utf-8')
+        secret = bytes(secret_str, 'utf-8')
+        sig = hmac.new(secret, message, digestmod=hashlib.sha256).digest().hex()
+        LOG.info(f"signature is {sig}")
+        return sig
+
+
+    async def connect():
+        ws = None
+        tasks = []
+        try:
+            LOG.info(f"Preparing session...")
+            session_started.clear()
+            await enqueue_outbound(make_order_book_depth(), 0)
+
+            LOG.info(f"Connecting to the Exberry Trading API at {env.tradingApiUrl} ...")
+            ws = await ClientSession().ws_connect(env.tradingApiUrl)
+            LOG.info("...Connected to the Exberry Trading API")
+
+            LOG.info(f"Preparing producer coroutine...")
+            sender_task = asyncio.create_task(producer_coro(ws))
+
+            LOG.info(f"Preparing consumer coroutine...")
+            receiver_task = asyncio.create_task(consumer_coro(ws))
+
+            LOG.info(f"Requesting market session...")
+            await request_session(env.apiKey, env.secret, ws)
+
+            tasks = [sender_task, receiver_task]
+            await asyncio.gather(*tasks)
+        except Exception as e:
+            LOG.warn(f'connection error: {e}, cancelling tasks and cleaning up...')
+            for t in tasks: t.cancel()
+            if ws: await ws.close()
+
+            LOG.warn('attempting reconnect in 2 seconds...')
+            await asyncio.sleep(2)
+            await connect()
+
 
 
     async def producer_coro(ws):
@@ -109,10 +164,7 @@ def integration_exberry_main(
             while True:
                 await session_started.wait()
                 LOG.info("Awaiting next message to send...")
-                if pending_outbound_queue.qsize() > 0:
-                    request_to_send = await pending_outbound_queue.get()
-                else:
-                    request_to_send = await outbound_queue.get()
+                request_to_send = await dequeue_outbound()
                 LOG.info(f"Integration --> Exberry: {request_to_send}")
                 await ws.send_json(request_to_send)
                 request_to_send = None
@@ -122,7 +174,7 @@ def integration_exberry_main(
             LOG.info("Ending producer coroutine...")
             if request_to_send:
                 LOG.info('Message dequeued but not sent, prioritizing on reconnect...')
-                await pending_outbound_queue.put(request_to_send)
+                await enqueue_outbound(request_to_send, 0)
 
 
     async def consumer_coro(ws):
@@ -142,8 +194,11 @@ def integration_exberry_main(
             LOG.exception(f"Error in consumer coroutine: {e}")
         finally:
             LOG.info("Ending consumer coroutine...")
+            LOG.info("Raising exception...")
             if ws.closed:
                 raise Exception("Consumer routine ended with websocket lost.")
+            else:
+                raise Exception("Consumer routine ended unexpectedly")
 
 
     @events.ledger.contract_created(EXBERRY.NewOrderRequest)
@@ -225,6 +280,7 @@ def integration_exberry_main(
                     global LAST_TRACKING_NUMBER
                     LAST_TRACKING_NUMBER = msg_data['trackingNumber']
                 if msg_data['messageType'] == 'Executed':
+                    LOG.info('Processing execution report...')
                     return create(EXBERRY.ExecutionReport, {
                         'sid': msg['sid'],
                         'eventId': msg_data['eventId'],
@@ -242,10 +298,12 @@ def integration_exberry_main(
                         'executedPrice': msg_data['executedPrice'],
                         'integrationParty': env.party,
                     })
+
         elif msg['q'] == EXBERRY_PLACE_ORDER:
             if 'd' in msg and 'orderId' in msg['d']:
                 msg_data = msg['d']
                 # this is a place order ack
+                LOG.info('Processing order acknowledgement...')
                 return create(EXBERRY.NewOrderSuccess, {
                     'sid': msg['sid'],
                     'orderId': msg_data['orderId'],
@@ -254,6 +312,7 @@ def integration_exberry_main(
             elif 'errorType' in msg:
                 msg_data = msg['d']
                 # this is a place order reject
+                LOG.info('Processing order failure...')
                 return create(EXBERRY.NewOrderFailure, {
                     'sid': msg['sid'],
                     'errorCode': msg_data['errorCode'],
@@ -268,6 +327,7 @@ def integration_exberry_main(
 
         elif msg['q'] == EXBERRY_CANCEL_ORDER:
             if 'd' in msg and 'orderId' in msg['d']:
+                LOG.info('Processing order cancel success...')
                 return create(EXBERRY.CancelOrderSuccess, {
                     'integrationParty': env.party,
                     'sid': msg['sid']
@@ -275,6 +335,7 @@ def integration_exberry_main(
             elif 'errorType' in msg:
                 msg_data = msg['d']
                 # this is a cancel order reject
+                LOG.info('Processing order cancel reject...')
                 return create(EXBERRY.CancelOrderFailure, {
                     'integrationParty': env.party,
                     'sid': msg['sid'],
@@ -285,6 +346,7 @@ def integration_exberry_main(
         elif msg['q'] == EXBERRY_MASS_CANCEL:
             if 'd' in msg and 'numberOfOrders' in msg['d']:
                 msg_data = msg['d']
+                LOG.info('Processing mass cancel success...')
                 return create(EXBERRY.MassCancelSuccess, {
                     'integrationParty': env.party,
                     'sid': msg['sid'],
@@ -292,7 +354,7 @@ def integration_exberry_main(
                 })
             elif 'errorType' in msg:
                 msg_data = msg['d']
-                # this is a mass cancel order reject
+                LOG.info('Processing mass cancel failure...')
                 return create(EXBERRY.MassCancelFailure, {
                     'integrationParty': env.party,
                     'sid': msg['sid'],
@@ -300,36 +362,13 @@ def integration_exberry_main(
                     'errorMessage': msg_data['errorMessage'],
                 })
 
+
     @events.ledger.contract_created(EXBERRY.MassCancelRequest)
     async def handle_mass_cancel_request(event):
         LOG.info(f"{EXBERRY.MassCancelRequest} created!")
         mass_cancel_req = mass_cancel(event.cdata)
         await enqueue_outbound(mass_cancel_req)
         return exercise(event.cid, 'Archive', {})
-
-
-    async def fetch_token() -> str:
-        async with ClientSession() as session:
-            LOG.info("Requesting a token...")
-            data_dict = {
-                'email': env.username,
-                'password': env.password,
-            }
-            LOG.info(f'Integration ==> Exberry: POST {data_dict}')
-            token_url = env.adminApiUrl + '/auth/token'
-            async with session.post(token_url, json=data_dict) as resp:
-                json_resp = await resp.json()
-                LOG.info(f'Integration <== Exberry: {json_resp}')
-                return json_resp['token']
-
-
-    def compute_signature(api_key, secret_str: str, time_str: str):
-        message_str = f'''"apiKey":"{api_key}","timestamp":"{time_str}"'''
-        message = bytes(message_str, 'utf-8')
-        secret = bytes(secret_str, 'utf-8')
-        sig = hmac.new(secret, message, digestmod=hashlib.sha256).digest().hex()
-        LOG.info(f"signature is {sig}")
-        return sig
 
 
     def create_order(order_data):
@@ -372,34 +411,6 @@ def integration_exberry_main(
         }
         return mass_cancel_json
 
-
-    async def connect():
-        ws = None
-        tasks = []
-        try:
-            LOG.info(f"Connecting to the Exberry Trading API at {env.tradingApiUrl} ...")
-            ws = await ClientSession().ws_connect(env.tradingApiUrl)
-            LOG.info("...Connected to the Exberry Trading API")
-
-            LOG.info(f"Preparing producer coroutine...")
-            sender_task = asyncio.create_task(producer_coro(ws))
-
-            LOG.info(f"Preparing consumer coroutine...")
-            receiver_task = asyncio.create_task(consumer_coro(ws))
-
-            LOG.info(f"Requesting market session...")
-            await request_session(env.apiKey, env.secret, ws)
-
-            tasks = [sender_task, receiver_task]
-            asyncio.gather(*tasks)
-        except Exception as e:
-            LOG.warn(f'connection error: {e}, cancelling tasks and cleaning up...')
-            [t.cancel() for t in tasks]
-            if ws: ws.close()
-
-            await asyncio.sleep(2)
-            LOG.warn('attempting reconnect...')
-            await connect()
 
     return connect()
 
