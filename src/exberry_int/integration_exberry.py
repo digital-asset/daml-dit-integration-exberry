@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import logging
 import time
-from typing import Optional
 
 from aiohttp import ClientSession, WSMsgType
 from dazl import create, exercise
@@ -48,8 +47,8 @@ class ExberryIntegrationEnv(IntegrationEnvironment):
     apiKey: str
     secret: str
 
+
 LAST_TRACKING_NUMBER = None
-CURRENT_PRIORITY = 0
 
 def make_order_book_depth():
     global LAST_TRACKING_NUMBER
@@ -67,12 +66,9 @@ def integration_exberry_main(
     outbound_queue = asyncio.PriorityQueue()
     session_started = asyncio.Event()
 
-    async def enqueue_outbound(msg: dict, priority: Optional[int] = None):
+    async def enqueue_outbound(msg: dict, priority: int = 1):
         global CURRENT_PRIORITY
         LOG.info(f"Enqueuing outbound message: {msg}")
-        if not priority:
-            CURRENT_PRIORITY = 1 if outbound_queue.qsize() == 0 else CURRENT_PRIORITY + 1
-            priority = CURRENT_PRIORITY
         await outbound_queue.put((priority, msg))
 
 
@@ -376,7 +372,7 @@ def integration_exberry_main(
         try:
             LOG.info(f"Preparing session...")
             session_started.clear()
-            await enqueue_outbound(make_order_book_depth(), 0)
+            await enqueue_outbound(make_order_book_depth(), -1)
 
             LOG.info(f"Connecting to the Exberry Trading API at {env.tradingApiUrl} ...")
             ws = await ClientSession().ws_connect(env.tradingApiUrl)
