@@ -100,64 +100,6 @@ def integration_exberry_main(
         LOG.info("Waiting for session request to be confirmed...")
 
 
-    async def fetch_token() -> str:
-        async with ClientSession() as session:
-            LOG.info("Requesting a token...")
-            data_dict = {
-                'email': env.username,
-                'password': env.password,
-            }
-            LOG.info(f'Integration ==> Exberry: POST {data_dict}')
-            token_url = env.adminApiUrl + '/auth/token'
-            async with session.post(token_url, json=data_dict) as resp:
-                json_resp = await resp.json()
-                LOG.info(f'Integration <== Exberry: {json_resp}')
-                return json_resp['token']
-
-
-    def compute_signature(api_key, secret_str: str, time_str: str):
-        message_str = f'''"apiKey":"{api_key}","timestamp":"{time_str}"'''
-        message = bytes(message_str, 'utf-8')
-        secret = bytes(secret_str, 'utf-8')
-        sig = hmac.new(secret, message, digestmod=hashlib.sha256).digest().hex()
-        LOG.info(f"signature is {sig}")
-        return sig
-
-
-    async def connect():
-        ws = None
-        tasks = []
-        try:
-            LOG.info(f"Preparing session...")
-            session_started.clear()
-            await enqueue_outbound(make_order_book_depth(), 0)
-
-            LOG.info(f"Connecting to the Exberry Trading API at {env.tradingApiUrl} ...")
-            ws = await ClientSession().ws_connect(env.tradingApiUrl)
-            LOG.info("...Connected to the Exberry Trading API")
-
-            LOG.info(f"Preparing producer coroutine...")
-            sender_task = asyncio.create_task(producer_coro(ws))
-
-            LOG.info(f"Preparing consumer coroutine...")
-            receiver_task = asyncio.create_task(consumer_coro(ws))
-
-            LOG.info(f"Requesting market session...")
-            await request_session(env.apiKey, env.secret, ws)
-
-            tasks = [sender_task, receiver_task]
-            await asyncio.gather(*tasks)
-        except Exception as e:
-            LOG.warn(f'connection error: {e}, cancelling tasks and cleaning up...')
-            for t in tasks: t.cancel()
-            if ws: await ws.close()
-
-            LOG.warn('attempting reconnect in 2 seconds...')
-            await asyncio.sleep(2)
-            await connect()
-
-
-
     async def producer_coro(ws):
         request_to_send = None
         try:
@@ -196,7 +138,7 @@ def integration_exberry_main(
             LOG.info("Ending consumer coroutine...")
             LOG.info("Raising exception...")
             if ws.closed:
-                raise Exception("Consumer routine ended with websocket lost.")
+                raise Exception("Consumer routine ended with websocket lost")
             else:
                 raise Exception("Consumer routine ended unexpectedly")
 
@@ -280,7 +222,6 @@ def integration_exberry_main(
                     global LAST_TRACKING_NUMBER
                     LAST_TRACKING_NUMBER = msg_data['trackingNumber']
                 if msg_data['messageType'] == 'Executed':
-                    LOG.info('Processing execution report...')
                     return create(EXBERRY.ExecutionReport, {
                         'sid': msg['sid'],
                         'eventId': msg_data['eventId'],
@@ -298,12 +239,10 @@ def integration_exberry_main(
                         'executedPrice': msg_data['executedPrice'],
                         'integrationParty': env.party,
                     })
-
         elif msg['q'] == EXBERRY_PLACE_ORDER:
             if 'd' in msg and 'orderId' in msg['d']:
                 msg_data = msg['d']
                 # this is a place order ack
-                LOG.info('Processing order acknowledgement...')
                 return create(EXBERRY.NewOrderSuccess, {
                     'sid': msg['sid'],
                     'orderId': msg_data['orderId'],
@@ -312,7 +251,6 @@ def integration_exberry_main(
             elif 'errorType' in msg:
                 msg_data = msg['d']
                 # this is a place order reject
-                LOG.info('Processing order failure...')
                 return create(EXBERRY.NewOrderFailure, {
                     'sid': msg['sid'],
                     'errorCode': msg_data['errorCode'],
@@ -327,7 +265,6 @@ def integration_exberry_main(
 
         elif msg['q'] == EXBERRY_CANCEL_ORDER:
             if 'd' in msg and 'orderId' in msg['d']:
-                LOG.info('Processing order cancel success...')
                 return create(EXBERRY.CancelOrderSuccess, {
                     'integrationParty': env.party,
                     'sid': msg['sid']
@@ -335,7 +272,6 @@ def integration_exberry_main(
             elif 'errorType' in msg:
                 msg_data = msg['d']
                 # this is a cancel order reject
-                LOG.info('Processing order cancel reject...')
                 return create(EXBERRY.CancelOrderFailure, {
                     'integrationParty': env.party,
                     'sid': msg['sid'],
@@ -346,7 +282,6 @@ def integration_exberry_main(
         elif msg['q'] == EXBERRY_MASS_CANCEL:
             if 'd' in msg and 'numberOfOrders' in msg['d']:
                 msg_data = msg['d']
-                LOG.info('Processing mass cancel success...')
                 return create(EXBERRY.MassCancelSuccess, {
                     'integrationParty': env.party,
                     'sid': msg['sid'],
@@ -354,7 +289,7 @@ def integration_exberry_main(
                 })
             elif 'errorType' in msg:
                 msg_data = msg['d']
-                LOG.info('Processing mass cancel failure...')
+                # this is a mass cancel order reject
                 return create(EXBERRY.MassCancelFailure, {
                     'integrationParty': env.party,
                     'sid': msg['sid'],
@@ -362,13 +297,36 @@ def integration_exberry_main(
                     'errorMessage': msg_data['errorMessage'],
                 })
 
-
     @events.ledger.contract_created(EXBERRY.MassCancelRequest)
     async def handle_mass_cancel_request(event):
         LOG.info(f"{EXBERRY.MassCancelRequest} created!")
         mass_cancel_req = mass_cancel(event.cdata)
         await enqueue_outbound(mass_cancel_req)
         return exercise(event.cid, 'Archive', {})
+
+
+    async def fetch_token() -> str:
+        async with ClientSession() as session:
+            LOG.info("Requesting a token...")
+            data_dict = {
+                'email': env.username,
+                'password': env.password,
+            }
+            LOG.info(f'Integration ==> Exberry: POST {data_dict}')
+            token_url = env.adminApiUrl + '/auth/token'
+            async with session.post(token_url, json=data_dict) as resp:
+                json_resp = await resp.json()
+                LOG.info(f'Integration <== Exberry: {json_resp}')
+                return json_resp['token']
+
+
+    def compute_signature(api_key, secret_str: str, time_str: str):
+        message_str = f'''"apiKey":"{api_key}","timestamp":"{time_str}"'''
+        message = bytes(message_str, 'utf-8')
+        secret = bytes(secret_str, 'utf-8')
+        sig = hmac.new(secret, message, digestmod=hashlib.sha256).digest().hex()
+        LOG.info(f"signature is {sig}")
+        return sig
 
 
     def create_order(order_data):
@@ -411,6 +369,38 @@ def integration_exberry_main(
         }
         return mass_cancel_json
 
+
+    async def connect():
+        ws = None
+        tasks = []
+        try:
+            LOG.info(f"Preparing session...")
+            session_started.clear()
+            await enqueue_outbound(make_order_book_depth(), 0)
+
+            LOG.info(f"Connecting to the Exberry Trading API at {env.tradingApiUrl} ...")
+            ws = await ClientSession().ws_connect(env.tradingApiUrl)
+            LOG.info("...Connected to the Exberry Trading API")
+
+            LOG.info(f"Preparing producer coroutine...")
+            sender_task = asyncio.create_task(producer_coro(ws))
+
+            LOG.info(f"Preparing consumer coroutine...")
+            receiver_task = asyncio.create_task(consumer_coro(ws))
+
+            LOG.info(f"Requesting market session...")
+            await request_session(env.apiKey, env.secret, ws)
+
+            tasks = [sender_task, receiver_task]
+            await asyncio.gather(*tasks)
+        except Exception as e:
+            LOG.warn(f'connection error: {e}, cancelling tasks and cleaning up...')
+            for t in tasks: t.cancel()
+            if ws: await ws.close()
+
+            LOG.warn('attempting reconnect in 2 seconds...')
+            await asyncio.sleep(2)
+            await connect()
 
     return connect()
 
