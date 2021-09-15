@@ -6,7 +6,11 @@ import hmac
 import logging
 import time
 
-from aiohttp import ClientSession, WSMsgType
+from typing import Optional
+from enum import Enum
+
+from asyncio import Task
+from aiohttp import ClientSession, WSMsgType, ClientWebSocketResponse
 from dazl import create, exercise
 
 from daml_dit_if.api import \
@@ -48,7 +52,11 @@ class ExberryIntegrationEnv(IntegrationEnvironment):
     secret: str
 
 
-LAST_TRACKING_NUMBER = None
+class OutboundPriority(Enum):
+    MARKET_RECONNECT = -1
+    DEQUEUED_MESSAGE = 0
+    NEW_MESSAGE = 1
+
 
 def make_order_book_depth():
     global LAST_TRACKING_NUMBER
@@ -59,6 +67,9 @@ def make_order_book_depth():
         'd': data
     }
 
+
+LAST_TRACKING_NUMBER = None
+
 def integration_exberry_main(
     env: 'ExberryIntegrationEnv',
     events: 'IntegrationEvents'):
@@ -66,8 +77,7 @@ def integration_exberry_main(
     outbound_queue = asyncio.PriorityQueue()
     session_started = asyncio.Event()
 
-    async def enqueue_outbound(msg: dict, priority: int = 1):
-        global CURRENT_PRIORITY
+    async def enqueue_outbound(msg: dict, priority: OutboundPriority = OutboundPriority.NEW_MESSAGE):
         LOG.info(f"Enqueuing outbound message: {msg}")
         await outbound_queue.put((priority, msg))
 
@@ -112,7 +122,7 @@ def integration_exberry_main(
             LOG.info("Ending producer coroutine...")
             if request_to_send:
                 LOG.info('Message dequeued but not sent, prioritizing on reconnect...')
-                await enqueue_outbound(request_to_send, 0)
+                await enqueue_outbound(request_to_send, OutboundPriority.DEQUEUED_MESSAGE)
 
 
     async def consumer_coro(ws):
@@ -132,7 +142,6 @@ def integration_exberry_main(
             LOG.exception(f"Error in consumer coroutine: {e}")
         finally:
             LOG.info("Ending consumer coroutine...")
-            LOG.info("Raising exception...")
             if ws.closed:
                 raise Exception("Consumer routine ended with websocket lost")
             else:
@@ -370,13 +379,15 @@ def integration_exberry_main(
         ws = None
         tasks = []
         try:
-            LOG.info(f"Preparing session...")
             session_started.clear()
-            await enqueue_outbound(make_order_book_depth(), -1)
 
             LOG.info(f"Connecting to the Exberry Trading API at {env.tradingApiUrl} ...")
             ws = await ClientSession().ws_connect(env.tradingApiUrl)
+
             LOG.info("...Connected to the Exberry Trading API")
+
+            LOG.info(f"Preparing session...")
+            await enqueue_outbound(make_order_book_depth(), OutboundPriority.MARKET_RECONNECT)
 
             LOG.info(f"Preparing producer coroutine...")
             sender_task = asyncio.create_task(producer_coro(ws))
@@ -387,16 +398,20 @@ def integration_exberry_main(
             LOG.info(f"Requesting market session...")
             await request_session(env.apiKey, env.secret, ws)
 
+            LOG.info(f"Starting coroutines...")
             tasks = [sender_task, receiver_task]
             await asyncio.gather(*tasks)
+
         except Exception as e:
-            LOG.warn(f'connection error: {e}, cancelling tasks and cleaning up...')
+            LOG.warn(f'connection error: {e}')
+
+        finally:
+            LOG.info('Cancelling tasks and cleaing up...')
             for t in tasks: t.cancel()
             if ws: await ws.close()
 
-            LOG.warn('attempting reconnect in 2 seconds...')
+            LOG.warn('Attempting reconnect in 2 seconds...')
             await asyncio.sleep(2)
             await connect()
 
     return connect()
-
