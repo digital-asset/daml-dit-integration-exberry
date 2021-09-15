@@ -6,7 +6,11 @@ import hmac
 import logging
 import time
 
-from aiohttp import ClientSession, WSMsgType
+from typing import Optional
+from enum import Enum
+
+from asyncio import Task
+from aiohttp import ClientSession, WSMsgType, ClientWebSocketResponse
 from dazl import create, exercise
 
 from daml_dit_if.api import \
@@ -47,7 +51,12 @@ class ExberryIntegrationEnv(IntegrationEnvironment):
     apiKey: str
     secret: str
 
-LAST_TRACKING_NUMBER = None
+
+class OutboundPriority(Enum):
+    MARKET_RECONNECT = -1
+    DEQUEUED_MESSAGE = 0
+    NEW_MESSAGE = 1
+
 
 def make_order_book_depth():
     global LAST_TRACKING_NUMBER
@@ -58,19 +67,24 @@ def make_order_book_depth():
         'd': data
     }
 
+
+LAST_TRACKING_NUMBER = None
+
 def integration_exberry_main(
     env: 'ExberryIntegrationEnv',
     events: 'IntegrationEvents'):
 
-    outbound_queue = asyncio.Queue()
+    outbound_queue = asyncio.PriorityQueue()
     session_started = asyncio.Event()
 
-    LOG.info(f"Preparing session...")
-    outbound_queue.put_nowait(make_order_book_depth())
-
-    async def enqueue_outbound(msg: dict):
+    async def enqueue_outbound(msg: dict, priority: OutboundPriority = OutboundPriority.NEW_MESSAGE):
         LOG.info(f"Enqueuing outbound message: {msg}")
-        await outbound_queue.put(msg)
+        await outbound_queue.put((priority, msg))
+
+
+    async def dequeue_outbound() -> dict:
+        _, msg = await outbound_queue.get()
+        return msg
 
 
     async def request_session(api_key: str, secret_str: str, ws):
@@ -92,27 +106,23 @@ def integration_exberry_main(
         LOG.info("Waiting for session request to be confirmed...")
 
 
-    async def request_market_data():
-        order_book_depth = {
-            'q': EXBERRY_ORDERBOOK_DEPTH,
-            'sid': 0,
-            'd': {}
-        }
-        await enqueue_outbound(order_book_depth)
-
-
     async def producer_coro(ws):
+        request_to_send = None
         try:
             while True:
                 await session_started.wait()
                 LOG.info("Awaiting next message to send...")
-                request_to_send = await outbound_queue.get()
+                request_to_send = await dequeue_outbound()
                 LOG.info(f"Integration --> Exberry: {request_to_send}")
                 await ws.send_json(request_to_send)
+                request_to_send = None
         except Exception as e:
             LOG.exception(f"Error in producer coroutine: {e}")
         finally:
             LOG.info("Ending producer coroutine...")
+            if request_to_send:
+                LOG.info('Message dequeued but not sent, prioritizing on reconnect...')
+                await enqueue_outbound(request_to_send, OutboundPriority.DEQUEUED_MESSAGE)
 
 
     async def consumer_coro(ws):
@@ -132,6 +142,10 @@ def integration_exberry_main(
             LOG.exception(f"Error in consumer coroutine: {e}")
         finally:
             LOG.info("Ending consumer coroutine...")
+            if ws.closed:
+                raise Exception("Consumer routine ended with websocket lost")
+            else:
+                raise Exception("Consumer routine ended unexpectedly")
 
 
     @events.ledger.contract_created(EXBERRY.NewOrderRequest)
@@ -139,7 +153,7 @@ def integration_exberry_main(
         LOG.info(f"{EXBERRY.NewOrderRequest} created!")
         order_data = event.cdata['order']
         order = create_order(order_data)
-        await outbound_queue.put(order)
+        await enqueue_outbound(order)
         return exercise(event.cid, 'Archive', {})
 
 
@@ -147,7 +161,7 @@ def integration_exberry_main(
     async def handle_cancel_order_request(event):
         LOG.info(f"{EXBERRY.CancelOrderRequest} created!")
         cancel_order_req = cancel_order(event.cdata)
-        await outbound_queue.put(cancel_order_req)
+        await enqueue_outbound(cancel_order_req)
         return exercise(event.cid, 'Archive', {})
 
 
@@ -206,7 +220,7 @@ def integration_exberry_main(
                 # error code 400 indicates there is already an existing subscription, otherwise resubscibe
                 if error_code != 400:
                     LOG.warning('Possibly lost order book subscription, resubscribing...')
-                    await outbound_queue.put(make_order_book_depth())
+                    await enqueue_outbound(make_order_book_depth())
             else:
                 msg_data = msg['d']
                 if 'trackingNumber' in msg_data:
@@ -292,7 +306,7 @@ def integration_exberry_main(
     async def handle_mass_cancel_request(event):
         LOG.info(f"{EXBERRY.MassCancelRequest} created!")
         mass_cancel_req = mass_cancel(event.cdata)
-        await outbound_queue.put(mass_cancel_req)
+        await enqueue_outbound(mass_cancel_req)
         return exercise(event.cid, 'Archive', {})
 
 
@@ -361,22 +375,43 @@ def integration_exberry_main(
         return mass_cancel_json
 
 
-
     async def connect():
-        LOG.info(f"Connecting to the Exberry Trading API at {env.tradingApiUrl} ...")
-        ws = await ClientSession().ws_connect(env.tradingApiUrl)
-        LOG.info("...Connected to the Exberry Trading API")
+        ws = None
+        tasks = []
+        try:
+            session_started.clear()
 
-        LOG.info(f"Preparing producer coroutine...")
-        sender_task = asyncio.create_task(producer_coro(ws))
+            LOG.info(f"Connecting to the Exberry Trading API at {env.tradingApiUrl} ...")
+            ws = await ClientSession().ws_connect(env.tradingApiUrl)
 
-        LOG.info(f"Preparing consumer coroutine...")
-        receiver_task = asyncio.create_task(consumer_coro(ws))
+            LOG.info("...Connected to the Exberry Trading API")
 
-        LOG.info(f"Requesting market session...")
-        await request_session(env.apiKey, env.secret, ws)
+            LOG.info(f"Preparing session...")
+            await enqueue_outbound(make_order_book_depth(), OutboundPriority.MARKET_RECONNECT)
 
-        asyncio.gather(*[sender_task, receiver_task])
+            LOG.info(f"Preparing producer coroutine...")
+            sender_task = asyncio.create_task(producer_coro(ws))
 
+            LOG.info(f"Preparing consumer coroutine...")
+            receiver_task = asyncio.create_task(consumer_coro(ws))
+
+            LOG.info(f"Requesting market session...")
+            await request_session(env.apiKey, env.secret, ws)
+
+            LOG.info(f"Starting coroutines...")
+            tasks = [sender_task, receiver_task]
+            await asyncio.gather(*tasks)
+
+        except Exception as e:
+            LOG.warn(f'connection error: {e}')
+
+        finally:
+            LOG.info('Cancelling tasks and cleaing up...')
+            for t in tasks: t.cancel()
+            if ws: await ws.close()
+
+            LOG.warn('Attempting reconnect in 2 seconds...')
+            await asyncio.sleep(2)
+            await connect()
 
     return connect()
