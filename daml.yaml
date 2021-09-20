@@ -3,7 +3,7 @@
 
 sdk-version: 1.4.0
 name: dabl-integration-exberry
-version: 1.0.0
+version: 0.8.0
 source: daml
 parties:
   - Alice

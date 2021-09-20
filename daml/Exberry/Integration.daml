@@ -97,7 +97,7 @@ template CreateInstrumentRequest
     signatory integrationParty
 
     ensure minQuantity > 0.0 && minQuantity <= maxQuantity
-        && pricePrecision > 0 && quantityPrecision > 0
+        && pricePrecision >= 0 && quantityPrecision >= 0
 
     controller integrationParty can
       CreateInstrumentRequest_Success : ContractId Instrument
