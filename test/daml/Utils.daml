@@ -1,0 +1,48 @@
+module Utils where
+
+import Daml.Script
+import DA.Time
+import DA.Date
+import DA.List (head)
+
+data LedgerParties = LedgerParties with
+  exchange  : Party
+    deriving (Eq, Show)
+
+getTimestamp : Script Int
+getTimestamp = convertRelTimeToMicroseconds . (flip subTime) (datetime 1970 Jan 1 0 0 0) <$> getTime
+
+-- |Query all contracts of Template t, return the first if list is
+-- non-empty, otherwise return None
+queryFirst : forall t p. (Template t) => Party -> Script (Optional (ContractId t, t))
+queryFirst = filterQueryFirst (const True)
+
+-- |Query filtered contract of Template t, return the first if the list is
+-- non-empty, otherwise return None
+filterQueryFirst : forall t p. (Template t) =>  ((ContractId t, t) -> Bool) -> Party -> Script (Optional (ContractId t, t))
+filterQueryFirst flt p = do
+  cs <- filter flt <$> query @t p
+  if (length cs) > 0
+  then return $ Some (head cs)
+  else return None
+
+-- |Wait until the response is Some x and return X, otherwise fail after timeout
+waitQuery : Decimal -> (Script (Optional c)) -> Script c
+waitQuery timeout fetchFn = getTime >>= waitQuery' timeout fetchFn
+
+-- |Wait until the response is True, otherwise fail after timeout
+waitUntil : Decimal -> (Script Bool) -> Script ()
+waitUntil timeout checkFn = getTime >>= waitQuery' timeout
+  (do checkFn >>= \case
+        True  -> return (Some ())
+        False -> return None)
+
+waitQuery' : Decimal -> (Script (Optional c)) -> Time -> Script c
+waitQuery' timeout fetchFn startTime = do
+    newTime <- getTime
+    let elapsed = intToDecimal $ convertRelTimeToMicroseconds (subTime newTime startTime)
+    assertMsg "Request timed out!" $ elapsed < (timeout * 1000000.0)
+    fetchFn >>= \case
+      (Some x) -> return x
+      None     -> sleep (seconds 1) >> waitQuery' timeout fetchFn startTime
+

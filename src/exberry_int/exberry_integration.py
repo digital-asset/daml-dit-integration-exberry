@@ -93,7 +93,7 @@ class ExberryIntegration:
         await self.outbound_queue.put(priority, msg)
 
 
-    async def __dequeue_outbound(self) -> dict:
+    async def _dequeue_outbound(self) -> dict:
         """ Retrieve next message to be sent through the Exberry websocket """
         return await self.outbound_queue.get()
 
@@ -114,7 +114,7 @@ class ExberryIntegration:
                 return json_resp['token']
 
 
-    def __compute_signature(self, api_key, secret_str: str, time_str: str):
+    def _compute_signature(self, api_key, secret_str: str, time_str: str):
         message_str = f'''"apiKey":"{api_key}","timestamp":"{time_str}"'''
         message = bytes(message_str, 'utf-8')
         secret = bytes(secret_str, 'utf-8')
@@ -123,11 +123,11 @@ class ExberryIntegration:
         return sig
 
 
-    async def __request_session(self, api_key: str, secret_str: str, ws):
+    async def _request_session(self, api_key: str, secret_str: str, ws):
         """ Request a websocket session to the Exberry server """
         time_str = str(int(time.time() * 1000))
         self.logger.info(f"Computing signature...")
-        signature = self.__compute_signature(api_key, secret_str, time_str)
+        signature = self._compute_signature(api_key, secret_str, time_str)
         self.logger.info(f"...OK")
 
         create_session = {
@@ -143,15 +143,15 @@ class ExberryIntegration:
         self.logger.info("Waiting for session request to be confirmed...")
 
 
-    async def __producer_coro(self, ws):
+    async def _producer_coro(self, ws):
         """ Send queued outbound messages through the Exberry websocket """
         request_to_send = None
         try:
             while True:
                 await self.session_started.wait()
                 self.logger.debug("Awaiting next message to send...")
-                request_to_send = await self.__dequeue_outbound()
-                self.logger.info(f"Integration --> Exberry: {request_to_send}")
+                request_to_send = await self._dequeue_outbound()
+                self.logger.info(f"Integration ===> Exberry: {request_to_send}")
                 await ws.send_json(request_to_send)
                 request_to_send = None
         except Exception as e:
@@ -163,7 +163,7 @@ class ExberryIntegration:
                 await self.enqueue_outbound(request_to_send, OutboundPriority.DEQUEUED_MESSAGE)
 
 
-    def __check_message_validity(self, msg: dict):
+    def _check_message_validity(self, msg: dict):
         """
         Ensure that only messages that require a ledger command are put on the
         integration's queue
@@ -174,27 +174,27 @@ class ExberryIntegration:
         if endpoint == Endpoints.PlaceOrder or endpoint == Endpoints.CancelOrder:
             return 'errorType' in msg or 'd' in msg and 'orderId' in msg['d']
         elif endpoint == Endpoints.MassCancel:
-            return 'errorType' in msg or 'numberOfOrders' in msg['d']
+            return 'errorType' in msg or 'd' in msg and 'numberOfOrders' in msg['d']
         elif endpoint == Endpoints.OrderBookDepth:
             return 'errorType' in msg or msg['d']['messageType'] == 'Executed'
         else:
             return endpoint in Endpoints.ValidResponseEndpoints
 
 
-    async def __consumer_coro(self, ws):
+    async def _consumer_coro(self, ws):
         """ Place incoming websocket messages onto the integration queue for processing in the main function """
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
                     msg_data = msg.json()
-                    if self.__check_message_validity(msg_data):
-                        self.logger.info(f"Exberry --> Integration: {msg_data}")
+                    if self._check_message_validity(msg_data):
+                        self.logger.info(f"Integration <=== Exberry: {msg_data}")
                         await self.env.queue.put(msg_data)
                     else:
-                        self.logger.debug(f'Message {msg_data} not necessary for contract creation, ignoring...')
+                        self.logger.debug(f"Message {msg_data} not necessary for contract creation, ignoring...")
 
                 elif msg.type == WSMsgType.ERROR:
-                    self.logger.error("Error message type! Breaking consumer loop...")
+                    self.logger.error(f"Error message type with error: {msg.data} Breaking consumer loop...")
                     break
                 else:
                     self.logger.warning(f"Unhandled messge type: {msg.type}. Ignoring...")
@@ -224,13 +224,13 @@ class ExberryIntegration:
             await self.subscribe_to_order_book_depth()
 
             self.logger.info(f"Preparing producer coroutine...")
-            sender_task = asyncio.create_task(self.__producer_coro(ws))
+            sender_task = asyncio.create_task(self._producer_coro(ws))
 
             self.logger.info(f"Preparing consumer coroutine...")
-            receiver_task = asyncio.create_task(self.__consumer_coro(ws))
+            receiver_task = asyncio.create_task(self._consumer_coro(ws))
 
             self.logger.info(f"Requesting market session...")
-            await self.__request_session(self.env.apiKey, self.env.secret, ws)
+            await self._request_session(self.env.apiKey, self.env.secret, ws)
 
             self.logger.info(f"Starting coroutines...")
             tasks = [sender_task, receiver_task]
