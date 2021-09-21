@@ -1,4 +1,4 @@
-sdk-version: 1.12.0
+sdk-version: 1.16.0
 name: exberry-integration-tests
 source: daml
 parties:
@@ -10,8 +10,8 @@ version: 1.0.0
 dependencies:
   - daml-prim
   - daml-stdlib
-  - daml-trigger
-  - ../.daml/dist/dabl-integration-exberry-1.0.0.dar
+  - daml-script
+  - ../.daml/dist/dabl-integration-exberry-0.8.0.dar
 sandbox-options:
   - --wall-clock-time
 build-options:
