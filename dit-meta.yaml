@@ -4,7 +4,7 @@
 catalog:
     name: dabl-integration-exberry
     group_id: com.digitalasset
-    version: 0.7.7
+    version: 0.8.0
     short_description: Exberry
     description: Exberry Trading and Management API Integration
     author: Digital Asset (Switzerland) GmbH
@@ -16,8 +16,8 @@ integration_types:
       name: Exberry
       description: >
           Connects to the trading API via websocket and transmits and orders and market data.
-      entrypoint: exberry_int.integration_exberry:integration_exberry_main
-      env_class: exberry_int.integration_exberry:ExberryIntegrationEnv
+      entrypoint: exberry_int.main:integration_exberry_main
+      env_class: exberry_int.exberry_integration:ExberryIntegrationEnv
       runtime: python-direct
       fields:
           - id: username

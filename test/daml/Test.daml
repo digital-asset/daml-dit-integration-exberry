@@ -1,0 +1,129 @@
+module Test where
+
+import Daml.Script
+
+import Exberry.Integration
+
+import Utils
+import DA.Optional
+
+integrationTest : Script ()
+integrationTest = do
+  let parties = LedgerParties with exchange = fromSome $ partyFromText "Exchange"
+  runIntegrationTest parties
+
+runIntegrationTest : LedgerParties -> Script ()
+runIntegrationTest lp@LedgerParties{exchange = integrationParty} = do
+
+  timestamp <- getTimestamp
+  testNumber <- (/ 10000) <$> getTimestamp
+
+  let symbol = "DA" <> show testNumber
+
+  let instrumentRequest = CreateInstrumentRequest
+        with
+          integrationParty, symbol
+          quoteCurrency = "DAQUOTE"
+          instrumentDescription = "DA TEST INSTRUMENT"
+          calendarId = "1261007448"
+          pricePrecision = 2
+          quantityPrecision = 2
+          minQuantity = 1.0
+          maxQuantity = 10000.0
+          status = "Active"
+
+  debug "Testing creating instrument..."
+  submit integrationParty $ createCmd instrumentRequest
+
+  (irCid,_) <- waitQuery 30.0
+    $ filterQueryFirst @Instrument (\(_,ins) -> ins.symbol == symbol) integrationParty
+  submit integrationParty $ archiveCmd irCid
+
+  debug "Test failed instrument creation..."
+  submit integrationParty $ createCmd instrumentRequest
+
+  (firCid,_) <- waitQuery 30.0
+    $ filterQueryFirst @FailedInstrumentRequest (\(_,ins) -> ins.symbol == symbol) integrationParty
+  submit integrationParty $ archiveCmd firCid
+
+  let buyId = testNumber
+  let sellId = testNumber + 1
+
+  let buyOrder = OrderData with
+        orderType = "Limit"
+        instrument = symbol
+        quantity = 100.0
+        price = 50.0
+        side = "Buy"
+        timeInForce = "GTC"
+        mpOrderId = buyId
+        userId = "Alice"
+
+  let sellOrder = buyOrder with side = "Sell", mpOrderId = sellId, userId = "Bob"
+
+  debug "Testing order request..."
+  submit integrationParty $ createCmd NewOrderRequest with order = buyOrder, ..
+
+  (nosCid,_) <- waitQuery 30.0 $ queryFirst @NewOrderSuccess integrationParty
+  submit integrationParty $ archiveCmd nosCid
+
+  debug "Testing order request failure..."
+  submit integrationParty $ createCmd NewOrderRequest with order = buyOrder, ..
+
+  (nofCid,_) <- waitQuery 30.0 $ queryFirst @NewOrderFailure integrationParty
+  submit integrationParty $ archiveCmd nofCid
+
+  debug "Testing order execution..."
+
+  submit integrationParty $ createCmd NewOrderRequest with order = sellOrder, ..
+
+  (nosCid,_) <- waitQuery 30.0 $ queryFirst @NewOrderSuccess integrationParty
+  submit integrationParty $ archiveCmd nosCid
+
+  (erCid,_) <- waitQuery 30.0
+    $ filterQueryFirst @ExecutionReport
+        (\(_,exc) -> exc.makerMpOrderId == buyOrder.mpOrderId
+                  && exc.takerMpOrderId == sellOrder.mpOrderId) integrationParty
+
+  debug "Testing order cancel..."
+
+  -- Create order to cancel
+  let cancelOrder = sellOrder with mpOrderId = sellId + 1
+  submit integrationParty $ createCmd NewOrderRequest with order = cancelOrder, ..
+
+  (nosCid,_) <- waitQuery 30.0 $ queryFirst @NewOrderSuccess integrationParty
+  submit integrationParty $ archiveCmd nosCid
+
+  -- Cancel order
+  let cancelOrderRequest = CancelOrderRequest with
+          integrationParty
+          instrument = symbol
+          mpOrderId  = cancelOrder.mpOrderId
+          userId     = cancelOrder.userId
+
+  submit integrationParty $ createCmd cancelOrderRequest
+  (cosCid,_) <- waitQuery 30.0 $ queryFirst @CancelOrderSuccess integrationParty
+  submit integrationParty $ archiveCmd cosCid
+
+  debug "Testing cancel order failure..."
+  submit integrationParty $ createCmd cancelOrderRequest
+
+  (cofCid,_) <- waitQuery 30.0 $ queryFirst @CancelOrderFailure integrationParty
+  submit integrationParty $ archiveCmd cofCid
+
+  debug "Testing mass cancel..."
+  submit integrationParty $ createCmd MassCancelRequest with sid = show testNumber, instrument = symbol, ..
+
+  (mcsCid,_) <- waitQuery 30.0 $ queryFirst @MassCancelSuccess integrationParty
+  submit integrationParty $ archiveCmd mcsCid
+
+  debug "Testing mass cancel failure..."
+  submit integrationParty $ createCmd MassCancelRequest with
+      sid = show (testNumber + 1), instrument = symbol <> "-no-exist", ..
+
+  (mcsCid,_) <- waitQuery 30.0 $ queryFirst @MassCancelFailure integrationParty
+  submit integrationParty $ archiveCmd mcsCid
+
+  debug "Done!"
+
+  return ()

@@ -1,0 +1,18 @@
+sdk-version: 1.16.0
+name: exberry-integration-tests
+source: daml
+parties:
+  - Exchange
+  - Alice
+  - Bob
+version: 1.0.0
+# trigger-dependencies-begin
+dependencies:
+  - daml-prim
+  - daml-stdlib
+  - daml-script
+  - ../.daml/dist/dabl-integration-exberry-0.8.0.dar
+sandbox-options:
+  - --wall-clock-time
+build-options:
+  - --ghc-option=-Wno-deprecations
