@@ -176,7 +176,8 @@ class ExberryIntegration:
         elif endpoint == Endpoints.MassCancel:
             return 'errorType' in msg or 'd' in msg and 'numberOfOrders' in msg['d']
         elif endpoint == Endpoints.OrderBookDepth:
-            return 'errorType' in msg or msg['d']['messageType'] == 'Executed'
+            executed = 'd' in msg and msg['d']['messageType'] == 'Executed' and 'makerMpId' in msg['d']
+            return 'errorType' in msg or executed
         else:
             return endpoint in Endpoints.ValidResponseEndpoints
 
