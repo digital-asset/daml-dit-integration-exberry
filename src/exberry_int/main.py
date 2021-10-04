@@ -40,6 +40,14 @@ def integration_exberry_main(
 
         LOG.info('Creating instrument...')
         data_dict = Endpoints.make_create_instrument_req(instrument)
+
+        requested_calendar_id = data_dict['calendarId']
+        calendar_resp = await integration.get_admin({}, f"{Endpoints.Calendars}/{requested_calendar_id}")
+        if 'code' in calendar_resp and calendar_resp['code'] == 10005:
+            LOG.info('calendarId not found, using default...')
+            calendars = await integration.get_admin({}, Endpoints.Calendars)
+            data_dict['calendarId'] = calendars[0]['id']
+
         json_resp = await integration.post_admin(data_dict, Endpoints.Instruments)
         if 'data' in json_resp:
             return exercise(event.cid,
@@ -50,6 +58,9 @@ def integration_exberry_main(
                                 'code': json_resp['code']
                             })
         elif 'id' in json_resp:
+            # await integration.request_session()
+            # await integration.subscribe_to_order_book_depth()
+            await integration.close_connection()
             return exercise(event.cid,
                             'CreateInstrumentRequest_Success',
                             {

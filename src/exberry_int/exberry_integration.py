@@ -50,6 +50,8 @@ class ExberryIntegration:
         self.env = env
         self.last_tracking_number = None # Optional[int]
         self.logger = logger
+        self.ws = None
+        self.current_session_sid = itertools.count()
 
 
     def set_last_tracking_number(self, tracking_number: int):
@@ -70,18 +72,28 @@ class ExberryIntegration:
         data = { 'trackingNumber': self.last_tracking_number } if self.last_tracking_number else {}
         subscription_request = {
             'q': Endpoints.OrderBookDepth,
-            'sid': 0,
+            'sid': next(self.current_session_sid),
             'd': data
         }
         await self.enqueue_outbound(subscription_request, OutboundPriority.MARKET_RECONNECT)
 
 
     async def post_admin(self, data_dict: dict, endpoint: str) -> dict:
-        """ Post a message to the Exberry Admin API """
+        """ POST a message to the Exberry Admin API """
         token = await self.__fetch_token()
         async with ClientSession() as session:
             self.logger.info(f'Integration ==> Exberry: POST {data_dict}')
             async with session.post(f'{self.env.adminApiUrl}/{endpoint}',
+                                    json=data_dict,
+                                    headers={'Authorization': f'Bearer {token}'}) as resp:
+                return await resp.json()
+
+    async def get_admin(self, data_dict: dict, endpoint: str) -> dict:
+        """ GET a message to the Exberry Admin API """
+        token = await self.__fetch_token()
+        async with ClientSession() as session:
+            self.logger.info(f'Integration ==> Exberry: POST {data_dict}')
+            async with session.get(f'{self.env.adminApiUrl}/{endpoint}',
                                     json=data_dict,
                                     headers={'Authorization': f'Bearer {token}'}) as resp:
                 return await resp.json()
@@ -123,6 +135,14 @@ class ExberryIntegration:
         return sig
 
 
+    async def request_session(self):
+        if self.ws:
+            self.session_started.clear()
+            await self._request_session(self.env.apiKey, self.env.secret, self.ws)
+        else:
+            self.logger.error('Tried to request a session before ws was initialized...')
+
+
     async def _request_session(self, api_key: str, secret_str: str, ws):
         """ Request a websocket session to the Exberry server """
         time_str = str(int(time.time() * 1000))
@@ -132,13 +152,14 @@ class ExberryIntegration:
 
         create_session = {
             'q': Endpoints.CreateSession,
-            'sid': 0,
+            'sid': next(self.current_session_sid),
             'd': {
                 'apiKey': api_key,
                 'timestamp': time_str,
                 'signature': signature
             }
         }
+        self.logger.info(f"Integration ===> Exberry: {create_session}")
         await ws.send_json(create_session)
         self.logger.info("Waiting for session request to be confirmed...")
 
@@ -208,6 +229,8 @@ class ExberryIntegration:
             else:
                 raise Exception("Consumer routine ended unexpectedly")
 
+    async def close_connection(self):
+        if self.ws: await self.ws.close()
 
     async def connect(self):
         """ Start the Exberry Websocket connection and consumer/producer tasks """
@@ -218,6 +241,7 @@ class ExberryIntegration:
 
             self.logger.info(f"Connecting to the Exberry Trading API at {self.env.tradingApiUrl} ...")
             ws = await ClientSession().ws_connect(self.env.tradingApiUrl)
+            self.ws = ws
 
             self.logger.info("...Connected to the Exberry Trading API")
 
@@ -243,7 +267,9 @@ class ExberryIntegration:
         finally:
             self.logger.info('Cancelling tasks and cleaing up...')
             for t in tasks: t.cancel()
-            if ws: await ws.close()
+            if ws:
+                await ws.close()
+                self.ws = None
 
             self.logger.warn('Attempting reconnect in 2 seconds...')
             await asyncio.sleep(2)

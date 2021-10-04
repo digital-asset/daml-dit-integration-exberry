@@ -22,6 +22,7 @@ class Endpoints:
     CancelOrder = 'v1/exchange.market/cancelOrder'
     MassCancel = 'v1/exchange.market/massCancel'
     Instruments = 'instruments'
+    Calendars = 'calendars'
 
     ValidResponseEndpoints = { OrderBookDepth, PlaceOrder, CreateSession, CancelOrder, MassCancel }
 

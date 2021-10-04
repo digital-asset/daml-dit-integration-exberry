@@ -25,7 +25,8 @@ runIntegrationTest lp@LedgerParties{exchange = integrationParty} = do
           integrationParty, symbol
           quoteCurrency = "DAQUOTE"
           instrumentDescription = "DA TEST INSTRUMENT"
-          calendarId = "1261007448"
+          calendarId = "1047289037"
+          -- calendarId = "1261007448"
           pricePrecision = 2
           quantityPrecision = 2
           minQuantity = 1.0
