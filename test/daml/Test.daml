@@ -2,10 +2,14 @@ module Test where
 
 import Daml.Script
 
-import Exberry.Integration
+import Exberry.Instrument
+import Exberry.Order
 
 import Utils
 import DA.Optional
+
+getIds : Int -> Int -> [Int]
+getIds n last = [last + 1..(last + n)]
 
 integrationTest : Script ()
 integrationTest = do
@@ -35,9 +39,8 @@ runIntegrationTest lp@LedgerParties{exchange = integrationParty} = do
   debug "Testing creating instrument..."
   submit integrationParty $ createCmd instrumentRequest
 
-  (irCid,_) <- waitQuery 30.0
+  (instCid,_) <- waitQuery 30.0
     $ filterQueryFirst @Instrument (\(_,ins) -> ins.symbol == symbol) integrationParty
-  submit integrationParty $ archiveCmd irCid
 
   debug "Test failed instrument creation..."
   submit integrationParty $ createCmd instrumentRequest
@@ -46,8 +49,41 @@ runIntegrationTest lp@LedgerParties{exchange = integrationParty} = do
     $ filterQueryFirst @FailedInstrumentRequest (\(_,ins) -> ins.symbol == symbol) integrationParty
   submit integrationParty $ archiveCmd firCid
 
-  let buyId = testNumber
-  let sellId = testNumber + 1
+  debug "Test instrument update..."
+  Some instrument <- queryContractId integrationParty instCid
+  instRequestCid <- submit integrationParty $ exerciseCmd instCid RequestUpdateInstrument with
+          newSymbol = instrument.symbol
+          newQuoteCurrency = instrument.quoteCurrency
+          newInstrumentDescription = instrument.instrumentDescription
+          newCalendarId = instrument.calendarId
+          newPricePrecision = 6
+          newQuantityPrecision = 6
+          newMinQuantity = instrument.minQuantity
+          newMaxQuantity = instrument.maxQuantity
+          newStatus = instrument.status
+
+  (instCid,_) <- waitQuery 30.0
+    $ filterQueryFirst @Instrument (\(_,ins) -> ins.symbol == symbol && ins.pricePrecision == 6) integrationParty
+
+  debug "Test unkown instrument update..."
+  Some instrument <- queryContractId integrationParty instCid
+  instRequestCid <- submit integrationParty $ createCmd UpdateUnknownInstrumentRequest with
+          symbol = instrument.symbol
+          quoteCurrency = instrument.quoteCurrency
+          instrumentDescription = instrument.instrumentDescription
+          calendarId = instrument.calendarId
+          pricePrecision = 2
+          quantityPrecision = 2
+          minQuantity = instrument.minQuantity
+          maxQuantity = instrument.maxQuantity
+          status = instrument.status
+          ..
+
+  (instCid,_) <- waitQuery 30.0
+    $ filterQueryFirst @Instrument (\(_,ins) -> ins.symbol == symbol && ins.pricePrecision == 2) integrationParty
+  submit integrationParty $ archiveCmd instCid
+
+  let [buyId, sellId, cancelOrderId, massCancelSid] = getIds 4 testNumber
 
   let buyOrder = OrderData with
         orderType = "Limit"
@@ -88,7 +124,7 @@ runIntegrationTest lp@LedgerParties{exchange = integrationParty} = do
   debug "Testing order cancel..."
 
   -- Create order to cancel
-  let cancelOrder = sellOrder with mpOrderId = sellId + 1
+  let cancelOrder = sellOrder with mpOrderId = cancelOrderId
   submit integrationParty $ createCmd NewOrderRequest with order = cancelOrder, ..
 
   (nosCid,_) <- waitQuery 30.0 $ queryFirst @NewOrderSuccess integrationParty

@@ -58,6 +58,69 @@ def integration_exberry_main(
         else:
             LOG.warning(f"Unknown response ¯\\_(ツ)_/¯ : {json_resp}")
 
+    @events.ledger.contract_created(EXBERRY.UpdateInstrumentRequest)
+    async def handle_update_instrument_request(event):
+        LOG.info(f"{EXBERRY.UpdateInstrumentRequest} created!")
+        update_request = event.cdata
+        inst_id = update_request['instrumentId']
+
+        LOG.info('Updating instrument...')
+        data_dict = Endpoints.make_update_instrument_req(update_request)
+        json_resp = await integration.put_admin(data_dict, f'{Endpoints.Instruments}/{inst_id}')
+        return exercise(event.cid, 'UpdateInstrumentRequest_Success', {})
+        # if 'data' in json_resp:
+        #     return exercise(event.cid,
+        #                     'UpdateInstrumentRequest_Failure',
+        #                     {
+        #                         'message': json_resp['message'],
+        #                         'name': json_resp['data'],
+        #                         'code': json_resp['code']
+        #                     })
+        # elif 'id' in json_resp:
+        #     return exercise(event.cid, 'UpdateInstrumentRequest_Success', {})
+        # else:
+        #     LOG.warning(f"Unknown response ¯\\_(ツ)_/¯ : {json_resp}")
+
+    @events.ledger.contract_created(EXBERRY.UpdateUnknownInstrumentRequest)
+    async def handle_update_unknown_instrument_request(event):
+        LOG.info(f"{EXBERRY.UpdateUnknownInstrumentRequest} created!")
+        update_request = event.cdata
+        symbol = update_request['symbol']
+
+        LOG.info('Updating unknown instrument...')
+
+        json_resp = await integration.get_admin({}, f'{Endpoints.Instruments}')
+        found_instrument = None
+        for inst in json_resp:
+            if inst['symbol'] == symbol: found_instrument = inst
+
+        if found_instrument == None:
+            LOG.error(f'Could not find instrument for {symbol} to update!')
+            return exercise(event.cid, 'UpdateUnknownInstrumentRequest_Failure', {
+                'message': 'Instrument not found in Exberry server!',
+                'name': 'InstrumentNotFound',
+                'code': '1205'
+                })
+
+        data_dict = Endpoints.make_create_instrument_req(update_request)
+        inst_id = found_instrument['id']
+
+        json_resp = await integration.put_admin(data_dict, f'{Endpoints.Instruments}/{inst_id}')
+        return exercise(event.cid, 'UpdateUnknownInstrumentRequest_Success', {'instrumentId': inst_id})
+
+        # if 'data' in json_resp:
+        #     return exercise(event.cid,
+        #                     'UpdateInstrumentRequest_Failure',
+        #                     {
+        #                         'message': json_resp['message'],
+        #                         'name': json_resp['data'],
+        #                         'code': json_resp['code']
+        #                     })
+        # elif 'id' in json_resp:
+        #     return exercise(event.cid, 'UpdateInstrumentRequest_Success', {})
+        # else:
+        #     LOG.warning(f"Unknown response ¯\\_(ツ)_/¯ : {json_resp}")
+
     @events.ledger.contract_created(EXBERRY.MassCancelRequest)
     async def handle_mass_cancel_request(event):
         LOG.info(f"{EXBERRY.MassCancelRequest} created!")

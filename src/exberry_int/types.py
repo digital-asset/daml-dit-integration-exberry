@@ -1,18 +1,21 @@
 class EXBERRY:
     TradingAPIConnection = 'Exberry.Integration:TradingAPIConnection'
-    NewOrderRequest = 'Exberry.Integration:NewOrderRequest'
-    NewOrderSuccess = 'Exberry.Integration:NewOrderSuccess'
-    NewOrderFailure = 'Exberry.Integration:NewOrderFailure'
-    CancelOrderRequest = 'Exberry.Integration:CancelOrderRequest'
-    CancelOrderSuccess = 'Exberry.Integration:CancelOrderSuccess'
-    CancelOrderFailure = 'Exberry.Integration:CancelOrderFailure'
-    CreateInstrumentRequest = 'Exberry.Integration:CreateInstrumentRequest'
-    Instrument = 'Exberry.Integration:Instrument'
-    FailedInstrumentRequest = 'Exberry.Integration:FailedInstrumentRequest'
-    ExecutionReport = 'Exberry.Integration:ExecutionReport'
-    MassCancelRequest = 'Exberry.Integration:MassCancelRequest'
-    MassCancelSuccess = 'Exberry.Integration:MassCancelSuccess'
-    MassCancelFailure = 'Exberry.Integration:MassCancelFailure'
+    NewOrderRequest = 'Exberry.Order:NewOrderRequest'
+    NewOrderSuccess = 'Exberry.Order:NewOrderSuccess'
+    NewOrderFailure = 'Exberry.Order:NewOrderFailure'
+    CancelOrderRequest = 'Exberry.Order:CancelOrderRequest'
+    CancelOrderSuccess = 'Exberry.Order:CancelOrderSuccess'
+    CancelOrderFailure = 'Exberry.Order:CancelOrderFailure'
+    CreateInstrumentRequest = 'Exberry.Instrument:CreateInstrumentRequest'
+    UpdateInstrumentRequest = 'Exberry.Instrument:UpdateInstrumentRequest'
+    UpdateUnknownInstrumentRequest = 'Exberry.Instrument:UpdateUnknownInstrumentRequest'
+    FailedUpdateInstrumentRequest = 'Exberry.Instrument:FailedUpdateInstrumentRequest'
+    Instrument = 'Exberry.Instrument:Instrument'
+    FailedInstrumentRequest = 'Exberry.Instrument:FailedInstrumentRequest'
+    ExecutionReport = 'Exberry.Order:ExecutionReport'
+    MassCancelRequest = 'Exberry.Order:MassCancelRequest'
+    MassCancelSuccess = 'Exberry.Order:MassCancelSuccess'
+    MassCancelFailure = 'Exberry.Order:MassCancelFailure'
 
 
 class Endpoints:
@@ -86,5 +89,21 @@ class Endpoints:
             'minQuantity': str(instrument_data['minQuantity']),
             'maxQuantity': str(instrument_data['maxQuantity']),
             'status': instrument_data['status']
+            # 'projectId': "1"
+        }
+
+    @staticmethod
+    def make_update_instrument_req(update_data) -> dict:
+        """ Create instrument request message from EXBERRY.CreateInstrumentRequest """
+        return {
+            'symbol': update_data['newSymbol'],
+            'quotecurrency': update_data['newQuoteCurrency'],
+            'description': update_data['newInstrumentDescription'],
+            'calendarId': update_data['newCalendarId'],
+            'pricePrecision': str(update_data['newPricePrecision']),
+            'quantityPrecision': str(update_data['newQuantityPrecision']),
+            'minQuantity': str(update_data['newMinQuantity']),
+            'maxQuantity': str(update_data['newMaxQuantity']),
+            'status': update_data['newStatus']
         }
 

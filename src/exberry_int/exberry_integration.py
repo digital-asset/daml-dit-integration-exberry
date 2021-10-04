@@ -84,8 +84,34 @@ class ExberryIntegration:
             async with session.post(f'{self.env.adminApiUrl}/{endpoint}',
                                     json=data_dict,
                                     headers={'Authorization': f'Bearer {token}'}) as resp:
-                return await resp.json()
+                resp_data = await resp.json()
+                self.logger.info(f'Integration <== Exberry: POST {resp_data}')
+                return resp_data
 
+
+    async def put_admin(self, data_dict: dict, endpoint: str) -> dict:
+        """ PUT a message to the Exberry Admin API """
+        token = await self.__fetch_token()
+        async with ClientSession() as session:
+            self.logger.info(f'Integration ==> Exberry: PUT {data_dict}')
+            async with session.put(f'{self.env.adminApiUrl}/{endpoint}',
+                                    json=data_dict,
+                                    headers={'Authorization': f'Bearer {token}'}) as resp:
+                resp_data = await resp.json()
+                self.logger.info(f'Integration <== Exberry: PUT {resp_data}')
+                return resp_data
+
+    async def get_admin(self, data_dict: dict, endpoint: str) -> dict:
+        """ PUT a message to the Exberry Admin API """
+        token = await self.__fetch_token()
+        async with ClientSession() as session:
+            self.logger.info(f'Integration ==> Exberry: GET {data_dict}')
+            async with session.get(f'{self.env.adminApiUrl}/{endpoint}',
+                                    json=data_dict,
+                                    headers={'Authorization': f'Bearer {token}'}) as resp:
+                resp_data = await resp.json()
+                self.logger.info(f'Integration <== Exberry: GET {resp_data}')
+                return resp_data
 
     async def enqueue_outbound(self, msg: dict, priority: OutboundPriority = OutboundPriority.NEW_MESSAGE):
         """ Enqueue a message to be send through the Exberry websocket """
@@ -105,6 +131,7 @@ class ExberryIntegration:
             data_dict = {
                 'email': self.env.username,
                 'password': self.env.password,
+                'scope': 'Instrument/update Instrument/list Instrument/create'
             }
             self.logger.info(f'Integration ==> Exberry Admin API: POST {data_dict}')
             token_url = self.env.adminApiUrl + '/auth/token'

@@ -1,0 +1,128 @@
+module Exberry.Order where
+
+data OrderData = OrderData
+  with
+    orderType : Text
+    instrument : Text
+    quantity : Decimal
+    price : Decimal
+    side : Text
+    timeInForce : Text
+    mpOrderId : Int
+    userId : Text
+  deriving (Ord, Eq, Show)
+
+
+-- Integration --> Exberry
+template NewOrderRequest
+  with
+    integrationParty : Party
+    order : OrderData
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template NewOrderSuccess
+  with
+    integrationParty : Party
+    sid : Int
+    orderId : Int
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template NewOrderFailure
+  with
+    integrationParty : Party
+    sid : Int
+    errorCode : Int
+    errorMessage : Text
+  where
+    signatory integrationParty
+
+
+-- Integration --> Exberry
+template CancelOrderRequest
+  with
+    integrationParty : Party
+    instrument : Text
+    mpOrderId : Int
+    userId : Text
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template CancelOrderSuccess
+  with
+    integrationParty : Party
+    sid : Int
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template CancelOrderFailure
+  with
+    integrationParty : Party
+    sid : Int
+    errorCode : Int
+    errorMessage : Text
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template ExecutionReport
+  with
+    integrationParty : Party
+    sid : Int
+    eventId : Int
+    eventTimestamp : Text
+    instrument : Text
+    trackingNumber : Int
+    makerMpId : Int
+    makerMpOrderId : Int
+    makerOrderId : Int
+    takerMpId : Int
+    takerMpOrderId : Int
+    takerOrderId : Int
+    matchId : Int
+    executedQuantity : Decimal
+    executedPrice : Decimal
+  where
+    signatory integrationParty
+
+
+-- Integration --> Exberry
+template MassCancelRequest
+  with
+    integrationParty : Party
+    sid : Text
+    instrument : Text
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template MassCancelSuccess
+  with
+    integrationParty : Party
+    sid : Int
+    numberOfOrders : Int
+  where
+    signatory integrationParty
+
+
+-- Integration <-- Exberry
+template MassCancelFailure
+  with
+    integrationParty : Party
+    sid : Int
+    errorCode : Int
+    errorMessage : Text
+  where
+    signatory integrationParty
+

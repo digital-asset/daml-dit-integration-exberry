@@ -1,0 +1,203 @@
+module Exberry.Instrument where
+
+import DA.Optional
+
+-- Integration ==> Exberry
+template CreateInstrumentRequest
+  with
+    integrationParty : Party
+    symbol : Text
+    quoteCurrency : Text
+    instrumentDescription : Text
+    calendarId : Text
+    pricePrecision : Int
+    quantityPrecision : Int
+    minQuantity : Decimal
+    maxQuantity : Decimal
+    status : Text
+  where
+    signatory integrationParty
+
+    ensure minQuantity > 0.0 && minQuantity <= maxQuantity
+        && pricePrecision >= 0 && quantityPrecision >= 0
+
+    controller integrationParty can
+      CreateInstrumentRequest_Success : ContractId Instrument
+        with
+          instrumentId : Text
+        do
+          create Instrument with ..
+
+      CreateInstrumentRequest_Failure : ContractId FailedInstrumentRequest
+        with
+          message : Text
+          name : Text
+          code : Text
+        do
+          create FailedInstrumentRequest with ..
+
+
+-- Integration <== Exberry
+template Instrument
+  with
+    integrationParty : Party
+    symbol : Text
+    quoteCurrency : Text
+    instrumentDescription : Text
+    calendarId : Text
+    pricePrecision : Int
+    quantityPrecision : Int
+    minQuantity : Decimal
+    maxQuantity : Decimal
+    status : Text
+    instrumentId : Text
+  where
+    signatory integrationParty
+    key (integrationParty, symbol) : (Party, Text)
+    maintainer key._1
+
+    controller integrationParty can
+      nonconsuming RequestUpdateInstrument : ContractId UpdateInstrumentRequest
+        with
+          newSymbol : Text
+          newQuoteCurrency : Text
+          newInstrumentDescription : Text
+          newCalendarId : Text
+          newPricePrecision : Int
+          newQuantityPrecision : Int
+          newMinQuantity : Decimal
+          newMaxQuantity : Decimal
+          newStatus : Text
+        do
+          create UpdateInstrumentRequest with instrument = this, instrumentId = Some instrumentId, ..
+
+      UpdateInstrument : ContractId Instrument
+        with
+          newSymbol : Text
+          newQuoteCurrency : Text
+          newInstrumentDescription : Text
+          newCalendarId : Text
+          newPricePrecision : Int
+          newQuantityPrecision : Int
+          newMinQuantity : Decimal
+          newMaxQuantity : Decimal
+          newStatus : Text
+        do
+          create this with
+            symbol                = newSymbol
+            quoteCurrency         = newQuoteCurrency
+            instrumentDescription = newInstrumentDescription
+            calendarId            = newCalendarId
+            pricePrecision        = newPricePrecision
+            quantityPrecision     = newQuantityPrecision
+            minQuantity           = newMinQuantity
+            maxQuantity           = newMaxQuantity
+            status                = newStatus
+
+
+template UpdateInstrumentRequest
+  with
+    integrationParty : Party
+    instrumentId : Optional Text
+    instrument : Instrument
+    newSymbol : Text
+    newQuoteCurrency : Text
+    newInstrumentDescription : Text
+    newCalendarId : Text
+    newPricePrecision : Int
+    newQuantityPrecision : Int
+    newMinQuantity : Decimal
+    newMaxQuantity : Decimal
+    newStatus : Text
+  where
+    signatory integrationParty
+
+    controller integrationParty can
+      UpdateInstrumentRequest_Success : ContractId Instrument
+        with
+          updatedInstrumentId : Text
+        do
+          exerciseByKey @Instrument (integrationParty, instrument.symbol) UpdateInstrument with ..
+
+      UpdateInstrumentRequest_Failure : ContractId FailedUpdateInstrumentRequest
+        with
+          message : Text
+          name : Text
+          code : Text
+        do
+          create FailedUpdateInstrumentRequest with request = this, ..
+
+template UpdateUnknownInstrumentRequest
+  with
+    integrationParty : Party
+    symbol : Text
+    quoteCurrency : Text
+    instrumentDescription : Text
+    calendarId : Text
+    pricePrecision : Int
+    quantityPrecision : Int
+    minQuantity : Decimal
+    maxQuantity : Decimal
+    status : Text
+  where
+    signatory integrationParty
+
+    controller integrationParty can
+      UpdateUnknownInstrumentRequest_Success : ContractId Instrument
+        with
+          instrumentId : Text
+        do
+          optInstrument <- lookupByKey @Instrument (integrationParty, symbol)
+          whenSome optInstrument $ \instCid -> archive instCid
+          create Instrument with ..
+
+      UpdateUnknownInstrumentRequest_Failure : ContractId FailedUpdateUnkownInstrumentRequest
+        with
+          message : Text
+          name : Text
+          code : Text
+        do
+          create FailedUpdateUnkownInstrumentRequest with request = this, ..
+
+template FailedUpdateInstrumentRequest
+  with
+    integrationParty : Party
+    request : UpdateInstrumentRequest
+    message : Text
+    name : Text
+    code : Text
+  where
+    signatory integrationParty
+
+template FailedUpdateUnkownInstrumentRequest
+  with
+    integrationParty : Party
+    request : UpdateUnknownInstrumentRequest
+    message : Text
+    name : Text
+    code : Text
+  where
+    signatory integrationParty
+
+
+
+-- Integration <== Exberry
+template FailedInstrumentRequest
+  with
+    integrationParty : Party
+    symbol : Text
+    quoteCurrency : Text
+    instrumentDescription : Text
+    calendarId : Text
+    pricePrecision : Int
+    quantityPrecision : Int
+    minQuantity : Decimal
+    maxQuantity : Decimal
+    status : Text
+    message : Text
+    name : Text
+    code : Text
+  where
+    signatory integrationParty
+
+
