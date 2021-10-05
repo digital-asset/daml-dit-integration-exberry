@@ -8,6 +8,7 @@ from typing import Type
 import time
 from logging import Logger
 from enum import Enum
+import time
 from .types import Endpoints
 
 from daml_dit_if.api import \
@@ -47,11 +48,13 @@ class ExberryIntegration:
     def __init__(self, env: 'ExberryIntegrationEnv', logger: Logger):
         self.outbound_queue = MultiplePriorityQueue(OutboundPriority)
         self.session_started = asyncio.Event()
+        self.order_book_canceled = asyncio.Event()
         self.env = env
         self.last_tracking_number = None # Optional[int]
         self.logger = logger
         self.ws = None
-        self.current_session_sid = itertools.count()
+        self.token = ""
+        self.token_refresh_time = time.time()
 
 
     def set_last_tracking_number(self, tracking_number: int):
@@ -62,25 +65,35 @@ class ExberryIntegration:
         self.last_tracking_number = tracking_number
 
 
-    async def start_session(self):
+    async def set_session_started(self):
         """ Indicate that the integration has established an Exberry websocket session """
         self.session_started.set()
 
 
-    async def subscribe_to_order_book_depth(self):
-        """ Enqueues a message to be sent that will subscribe to Exberry's OrderBook stream """
+    async def set_order_book_canceled(self):
+        """ Indicate that the integration has canceled the order book subscription """
+        self.order_book_canceled.set()
+
+
+    def _order_book_depth_subscription_request(self):
+        """ Creates a subscription message to subscribe to the OrderBook stream at the latest entry """
         data = { 'trackingNumber': self.last_tracking_number } if self.last_tracking_number else {}
-        subscription_request = {
+        return {
             'q': Endpoints.OrderBookDepth,
-            'sid': next(self.current_session_sid),
+            'sid': 0,
             'd': data
         }
-        await self.enqueue_outbound(subscription_request, OutboundPriority.MARKET_RECONNECT)
+
+
+    async def subscribe_to_order_book_depth(self):
+        """ Enqueues a message to be sent that will subscribe to Exberry's OrderBook stream """
+        request = self._order_book_depth_subscription_request()
+        await self.enqueue_outbound(request, OutboundPriority.MARKET_RECONNECT)
 
 
     async def post_admin(self, data_dict: dict, endpoint: str) -> dict:
         """ POST a message to the Exberry Admin API """
-        token = await self.__fetch_token()
+        token = await self._fetch_token()
         async with ClientSession() as session:
             self.logger.info(f'Integration ==> Exberry: POST {data_dict}')
             async with session.post(f'{self.env.adminApiUrl}/{endpoint}',
@@ -88,11 +101,12 @@ class ExberryIntegration:
                                     headers={'Authorization': f'Bearer {token}'}) as resp:
                 return await resp.json()
 
+
     async def get_admin(self, data_dict: dict, endpoint: str) -> dict:
         """ GET a message to the Exberry Admin API """
-        token = await self.__fetch_token()
+        token = await self._fetch_token()
         async with ClientSession() as session:
-            self.logger.info(f'Integration ==> Exberry: POST {data_dict}')
+            self.logger.info(f'Integration ==> Exberry: GET {data_dict}')
             async with session.get(f'{self.env.adminApiUrl}/{endpoint}',
                                     json=data_dict,
                                     headers={'Authorization': f'Bearer {token}'}) as resp:
@@ -110,8 +124,11 @@ class ExberryIntegration:
         return await self.outbound_queue.get()
 
 
-    async def __fetch_token(self) -> str:
+    async def _fetch_token(self) -> str:
         """ Retrieve a token to be used with the Exberry Admin API """
+        if time.time() < self.token_refresh_time:
+            return self.token
+
         async with ClientSession() as session:
             self.logger.info("Requesting a token...")
             data_dict = {
@@ -123,6 +140,8 @@ class ExberryIntegration:
             async with session.post(token_url, json=data_dict) as resp:
                 json_resp = await resp.json()
                 self.logger.info(f'Integration <== Exberry Admin API: {json_resp}')
+                self.token = json_resp['token']
+                self.token_refresh_time = time.time() + json_resp['expiresIn'] - 10
                 return json_resp['token']
 
 
@@ -135,12 +154,30 @@ class ExberryIntegration:
         return sig
 
 
-    async def request_session(self):
+    async def resubscribe(self):
+        """ Cancels the current OrderBookDepth stream, creates a new client session and resubscribes """
         if self.ws:
+            unsubscribe = {
+                'q': Endpoints.OrderBookDepth,
+                'sid': 0,
+                'sig': 3
+            }
+            self.logger.info(f"Cancelling OrderBook subscription...")
+            self.order_book_canceled.clear()
+            await self.ws.send_json(unsubscribe)
+
+            self.logger.info(f"Requesting new client session...")
             self.session_started.clear()
             await self._request_session(self.env.apiKey, self.env.secret, self.ws)
+
+            await self.session_started.wait()
+            await self.order_book_canceled.wait()
+
+            self.logger.info(f"Resubscribing to OrderBook...")
+            await self.subscribe_to_order_book_depth()
+
         else:
-            self.logger.error('Tried to request a session before ws was initialized...')
+            self.logger.error('Tried to resubscribe before ws was initialized...')
 
 
     async def _request_session(self, api_key: str, secret_str: str, ws):
@@ -152,7 +189,7 @@ class ExberryIntegration:
 
         create_session = {
             'q': Endpoints.CreateSession,
-            'sid': next(self.current_session_sid),
+            'sid': 0,
             'd': {
                 'apiKey': api_key,
                 'timestamp': time_str,
@@ -169,9 +206,11 @@ class ExberryIntegration:
         request_to_send = None
         try:
             while True:
-                await self.session_started.wait()
                 self.logger.debug("Awaiting next message to send...")
                 request_to_send = await self._dequeue_outbound()
+
+                await self.session_started.wait()
+
                 self.logger.info(f"Integration ===> Exberry: {request_to_send}")
                 await ws.send_json(request_to_send)
                 request_to_send = None
@@ -191,14 +230,15 @@ class ExberryIntegration:
         """
         if not 'q' in msg: return False
         endpoint = msg['q']
-
         if endpoint == Endpoints.PlaceOrder or endpoint == Endpoints.CancelOrder:
             return 'errorType' in msg or 'd' in msg and 'orderId' in msg['d']
         elif endpoint == Endpoints.MassCancel:
             return 'errorType' in msg or 'd' in msg and 'numberOfOrders' in msg['d']
         elif endpoint == Endpoints.OrderBookDepth:
-            executed = 'd' in msg and msg['d']['messageType'] == 'Executed' and 'makerMpId' in msg['d']
-            return 'errorType' in msg or executed
+            if 'errorType' in msg or 'sig' in msg:
+                return True
+            else:
+                return 'd' in msg and msg['d']['messageType'] == 'Executed' and 'makerMpId' in msg['d']
         else:
             return endpoint in Endpoints.ValidResponseEndpoints
 
@@ -229,8 +269,6 @@ class ExberryIntegration:
             else:
                 raise Exception("Consumer routine ended unexpectedly")
 
-    async def close_connection(self):
-        if self.ws: await self.ws.close()
 
     async def connect(self):
         """ Start the Exberry Websocket connection and consumer/producer tasks """

@@ -41,15 +41,17 @@ def integration_exberry_main(
         LOG.info('Creating instrument...')
         data_dict = Endpoints.make_create_instrument_req(instrument)
 
+        # check if calendarId exists
         requested_calendar_id = data_dict['calendarId']
         calendar_resp = await integration.get_admin({}, f"{Endpoints.Calendars}/{requested_calendar_id}")
-        if 'code' in calendar_resp and calendar_resp['code'] == 10005:
+        if 'code' in calendar_resp and calendar_resp['code'] == 10005: # calendarId not found error
             LOG.info('calendarId not found, using default...')
             calendars = await integration.get_admin({}, Endpoints.Calendars)
             data_dict['calendarId'] = calendars[0]['id']
 
         json_resp = await integration.post_admin(data_dict, Endpoints.Instruments)
         if 'data' in json_resp:
+            LOG.error(f'Error in instrument creation: {json_resp}')
             return exercise(event.cid,
                             'CreateInstrumentRequest_Failure',
                             {
@@ -58,9 +60,7 @@ def integration_exberry_main(
                                 'code': json_resp['code']
                             })
         elif 'id' in json_resp:
-            # await integration.request_session()
-            # await integration.subscribe_to_order_book_depth()
-            await integration.close_connection()
+            await integration.resubscribe()
             return exercise(event.cid,
                             'CreateInstrumentRequest_Success',
                             {
@@ -100,10 +100,13 @@ def integration_exberry_main(
     async def handle_create_session_msg(msg: dict):
         if 'sig' in msg and msg['sig'] == 1:
             LOG.info(f"Successfully established session!")
-            await integration.start_session()
+            await integration.set_session_started()
 
     async def handle_orderbook_depth_msg(msg: dict):
-        if 'errorType' in msg:
+        if 'sig' in msg and msg['sig'] == 3:
+            LOG.info(f"Sucessfully canceled OrderBookDepth")
+            await integration.set_order_book_canceled()
+        elif 'errorType' in msg:
             error_type = msg['errorType']
             error_code = msg['d']['errorCode']
             error_message = msg['d']['errorMessage']
