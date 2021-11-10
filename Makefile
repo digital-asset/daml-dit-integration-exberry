@@ -10,10 +10,14 @@ all: ${DIT_NAME}
 # This makefile depends on 'ddit' which can be installed
 # with 'pip3 install daml-dit-ddit'
 
+party ?= Exchange
+start: ${DIT_NAME}
+	ddit run --party=$(party) com.projectdabl.integrations.exberry.integration
+
 publish: ${DIT_NAME}
 	ddit release
 
-${DIT_NAME}: dabl-meta.yaml Makefile ${PKG_FILES} ${SRC_FILES} requirements.txt
+${DIT_NAME}: dit-meta.yaml Makefile ${PKG_FILES} ${SRC_FILES} requirements.txt
 	ddit build --force --integration
 
 clean:
