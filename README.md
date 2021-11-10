@@ -1,10 +1,10 @@
 # Exberry DAML Integration
 
-This is a DAML integration implementing the [Exberry APIs](https://docs.exberry.io/). The integration is deployed configured and launched in [project:DABL](https://www.projectdabl.com). It will run as a DAML Party on your ledger that will send and receive order management messages as well as order book updates and executions. Inbound and Outbound order messages are translated to DAML contracts that can be incorporated to a custom DAML workflow.
+This is a Daml integration implementing the [Exberry APIs](https://docs.exberry.io/). The integration is deployed configured and launched in [Daml Hub](https://hub.daml.com). It will run as a Daml Party on your ledger that will send and receive order management messages as well as order book updates and executions. Inbound and Outbound order messages are translated to DAML contracts that can be incorporated to a custom Daml workflow.
 
 ## To configure
 
-The integration requires a set of credentials and URLs for connecting and authenticating to Exberry. 
+The integration requires a set of credentials and URLs for connecting and authenticating to Exberry.
 
 
 - Username: your user name for the Management API
